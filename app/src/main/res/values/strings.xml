@@ -52,4 +52,14 @@
     <string name="display_seconds">Display Seconds</string>
     <string name="no_video_source">No Video Source</string>
     <string name="soft_decode">Soft Decode</string>
+    <string name="epg_is_empty">EPG is empty</string>
+    <!-- 新增：回看功能 -->
+    <string name="replay_mode">Replay Mode</string>
+    <string name="replay_available">Replay Available</string>
+    <string name="replay_not_supported">Replay Not Supported</string>
+    <string name="replay_loading">Loading Replay…</string>
+    <string name="replay_error">Replay Error</string>
+    <string name="exit_replay">Exit Replay</string>
+    <string name="epg_7days">7-Day EPG</string>
+    <string name="epg_days_hint">EPG supports up to 7 days</string>
 </resources>

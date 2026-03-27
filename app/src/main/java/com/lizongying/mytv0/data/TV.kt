@@ -9,12 +9,16 @@ data class TV(
     var description: String? = null,
     var logo: String = "",
     var image: String? = null,
-    var uris: List<String>,
+    var uris: List<String> = emptyList(),
     var videoIndex: Int = 0,
     var headers: Map<String, String>? = null,
     var group: String = "",
     var sourceType: SourceType = SourceType.UNKNOWN,
-    var child: List<TV>,
+    var number: Int = -1,
+    var child: List<TV> = emptyList(),
+    // ===== ??:M3U???? =====
+    // ??URL,????/????(??: #EXTVLCOPT:http-reconnect=true,$Revision: 1.9$ ?)
+    var replayUrl: String = "",
 ) : Serializable {
 
     override fun toString(): String {
@@ -25,10 +29,12 @@ data class TV(
                 ", description='" + description + '\'' +
                 ", logo='" + logo + '\'' +
                 ", image='" + image + '\'' +
-                ", uris='" + uris + '\'' +
-                ", headers='" + headers + '\'' +
+                ", uris=" + uris +
+                ", headers=" + headers +
                 ", group='" + group + '\'' +
                 ", sourceType='" + sourceType + '\'' +
+                ", number=" + number +
+                ", replayUrl='" + replayUrl + '\'' +
                 '}'
     }
 }

@@ -10,4 +10,10 @@
     <color name="track_unchecked">#B3EEEEEE</color>
     <color name="thumb_checked">#0096A6</color>
     <color name="thumb_unchecked">#FFEEEEEE</color>
+    <!-- ??:????????(???) -->
+    <color name="replay_color">#FF64B5F6</color>
+    <!-- ???????(?????) -->
+    <color name="replay_bg">#40263B8A</color>
+    <!-- ????????? -->
+    <color name="replayable_program">#80BBDEFB</color>
 </resources>

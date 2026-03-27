@@ -14,7 +14,6 @@ import androidx.core.view.marginBottom
 import androidx.core.view.marginStart
 import androidx.core.view.marginTop
 import androidx.fragment.app.Fragment
-import com.lizongying.mytv0.Utils.getUrls
 import com.lizongying.mytv0.databinding.InfoBinding
 import com.lizongying.mytv0.models.TVModel
 
@@ -72,24 +71,27 @@ class InfoFragment : Fragment() {
     }
 
     fun show(tvModel: TVModel) {
-        // TODO make sure attached
         if (!isAdded) {
             Log.e(TAG, "Fragment not attached to a context.")
             return
         }
 
+        val tv = tvModel.tv
+
         val context = requireContext()
+        val application = context.applicationContext as MyTVApplication
+        val imageHelper = application.imageHelper
 
-        binding.title.text = tvModel.tv.title
+        binding.title.text = tv.title
 
-        when (tvModel.tv.title) {
+        when (tv.title) {
             else -> {
                 val width = 300
                 val height = 180
                 val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
                 val canvas = Canvas(bitmap)
 
-                val channelNum = tvModel.tv.id + 1
+                val channelNum = if (tv.number == -1) tv.id.plus(1) else tv.number
                 var size = 150f
                 if (channelNum > 99) {
                     size = 100f
@@ -106,26 +108,34 @@ class InfoFragment : Fragment() {
                 val y = height / 2f - (paint.descent() + paint.ascent()) / 2
                 canvas.drawText(channelNum.toString(), x, y, paint)
 
-                val url = tvModel.tv.logo
-                val name = tvModel.tv.name
-                var urls =
-                    getUrls(
-                        "live.fanmingming.com/tv/$name.png"
-                    ) + getUrls("https://raw.githubusercontent.com/fanmingming/live/main/tv/$name.png")
-                if (url.isNotEmpty()) {
-                    urls = (getUrls(url) + urls).distinct()
-                }
-                loadNextUrl(context, binding.logo, bitmap, urls, 0, handler) {
-                    tvModel.tv.logo = urls[it]
-                }
+                val name = if (tv.name.isNotEmpty()) { tv.name } else { tv.title }
+                imageHelper.loadImage(name, binding.logo, bitmap, tv.logo)
             }
         }
 
-        val epg = tvModel.epg.value?.filter { it.beginTime < Utils.getDateTimestamp() }
-        if (!epg.isNullOrEmpty()) {
-            binding.desc.text = epg.last().title
+        // ===== ??:???????? =====
+        val now = Utils.getDateTimestamp()
+        val epg = tvModel.epg.value?.filter { it.beginTime < now }
+
+        if (tvModel.isReplayMode.value == true) {
+            // ????:????????
+            val replayEpg = tvModel.currentReplayEpg.value
+            if (replayEpg != null) {
+                binding.desc.text = "[??] ${replayEpg.title}"
+                // ??????????
+                binding.desc.setTextColor(ContextCompat.getColor(context, R.color.replay_color))
+            } else {
+                binding.desc.text = "[???]"
+            }
         } else {
-            binding.desc.text = "精彩節目"
+            // ??????
+            if (!epg.isNullOrEmpty()) {
+                binding.desc.text = epg.last().title
+            } else {
+                binding.desc.text = "????"
+            }
+            // ??????
+            binding.desc.setTextColor(ContextCompat.getColor(context, R.color.title_blur))
         }
 
         handler.removeCallbacks(removeRunnable)
