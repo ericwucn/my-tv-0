@@ -4,7 +4,7 @@ on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch:  # 手动触发
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -23,23 +23,82 @@ jobs:
           distribution: 'temurin'
           cache: 'gradle'
 
-      - name: Run build with Gradle wrapper
+      - name: Generate signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ALIAS_PASSWORD }}
+        run: |
+          # If no existing keystore in secrets, generate a new one
+          if [ -z "$KEYSTORE_B64" ] || [ "$KEYSTORE_B64" = "generate-new" ]; then
+            echo "No keystore found, generating new one..."
+            keytool -genkeypair \
+              -alias mytv \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -keystore signingkey.jks \
+              -storepass android123 \
+              -keypass android123 \
+              -dname "CN=MyTV, OU=MyTV, O=MyTV, L=Beijing, ST=Beijing, C=CN"
+            echo "KEYSTORE_B64=$(base64 -w 0 signingkey.jks)" >> $GITHUB_ENV
+            echo "Generated new keystore!"
+          else
+            echo "$KEYSTORE_B64" | base64 -d > signingkey.jks
+            echo "Using existing keystore from secrets"
+          fi
+
+      - name: Build APK
         run: ./gradlew clean && ./gradlew assembleRelease
 
-      - name: Sign app APK
-        id: sign_app
-        uses: r0adkll/sign-android-release@v1
-        with:
-          releaseDirectory: app/build/outputs/apk/release
-          alias: ${{ secrets.ALIAS }}
-          signingKeyBase64: ${{ secrets.KEYSTORE }}
-          keyStorePassword: ${{ secrets.KEYSTORE_PASSWORD }}
-          keyPassword: ${{ secrets.ALIAS_PASSWORD }}
+      - name: Sign APK
         env:
-          BUILD_TOOLS_VERSION: "34.0.0"
+          KEYSTORE_B64: ${{ env.KEYSTORE_B64 || secrets.KEYSTORE }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD || 'android123' }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS || 'mytv' }}
+          KEY_PASSWORD: ${{ secrets.ALIAS_PASSWORD || 'android123' }}
+        run: |
+          # Ensure we have a keystore
+          if [ -z "$KEYSTORE_B64" ] || [ "$KEYSTORE_B64" = "generate-new" ]; then
+            keytool -genkeypair \
+              -alias mytv \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -keystore signingkey.jks \
+              -storepass android123 \
+              -keypass android123 \
+              -dname "CN=MyTV, OU=MyTV, O=MyTV, L=Beijing, ST=Beijing, C=CN"
+            KEYSTORE_B64=$(base64 -w 0 signingkey.jks)
+          else
+            echo "$KEYSTORE_B64" | base64 -d > signingkey.jks
+          fi
+          echo "$KEYSTORE_B64" > keystore_b64.txt
+          keytool -genkeypair \
+            -alias mytv \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -keystore signingkey.jks \
+            -storepass android123 \
+            -keypass android123 \
+            -dname "CN=MyTV, OU=MyTV, O=MyTV, L=Beijing, ST=Beijing, C=CN" || true
+          $ANDROID_HOME/build-tools/34.0.0/apksigner sign \
+            --ks signingkey.jks \
+            --ks-pass pass:android123 \
+            --key-pass pass:android123 \
+            --ks-key-alias mytv \
+            --out app/build/outputs/apk/release/app-release-signed.apk \
+            app/build/outputs/apk/release/app-release-unsigned.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: my-tv-apk
+          path: app/build/outputs/apk/release/app-release-signed.apk
 
       - name: Get History
-        id: get_history
         run: |
           chmod +x history.sh
           output=$(./history.sh)
@@ -57,18 +116,11 @@ jobs:
           prerelease: false
           body_path: history.md
 
-      - name: Set Asset Name
-        id: set_asset_name
-        run: |
-          VERSION_WITHOUT_V=$(echo '${{ github.ref_name }}' | sed 's/^v//')
-          echo "asset_name=my-tv-0_${VERSION_WITHOUT_V}.apk" >> $GITHUB_ENV
-
       - name: Upload Release Asset
-        uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ${{ steps.sign_app.outputs.signedReleaseFile }}
-          asset_name: ${{ env.asset_name }}
-          asset_content_type: application/vnd.android.package-archive
+        run: |
+          VERSION_WITHOUT_V=$(echo '${{ github.ref_name }}' | sed 's/^v//')
+          echo "Asset name: my-tv-0_${VERSION_WITHOUT_V}.apk"
+          # Use GitHub CLI to upload
+          gh release upload '${{ github.ref }}' app/build/outputs/apk/release/app-release-signed.apk --clobber
