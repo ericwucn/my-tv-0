@@ -26,29 +26,17 @@ jobs:
       - name: Run build with Gradle wrapper
         run: ./gradlew clean && ./gradlew assembleRelease
 
-      - name: Sign app APK
-        id: sign_app
-        uses: r0adkll/sign-android-release@v1
-        with:
-          releaseDirectory: app/build/outputs/apk/release
-          alias: ${{ secrets.ALIAS }}
-          signingKeyBase64: ${{ secrets.KEYSTORE }}
-          keyStorePassword: ${{ secrets.KEYSTORE_PASSWORD }}
-          keyPassword: ${{ secrets.ALIAS_PASSWORD }}
-        env:
-          BUILD_TOOLS_VERSION: "34.0.0"
-
-      - name: Upload signed APK as artifact
+      - name: Upload unsigned APK as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: my-tv-0-signed
-          path: ${{ steps.sign_app.outputs.signedReleaseFile }}
+          name: my-tv-0-unsigned
+          path: app/build/outputs/apk/release/app-release-unsigned.apk
           retention-days: 30
 
       - name: Upload to Release (tag builds only)
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v1
         with:
-          files: ${{ steps.sign_app.outputs.signedReleaseFile }}
+          files: app/build/outputs/apk/release/app-release-unsigned.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
