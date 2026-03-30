@@ -57,41 +57,34 @@ class ProgramAdapter(
                 if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
                     return@setOnKeyListener true
                 }
+                // Replay/catchup: handle OK button on past programs
+                if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) {
+                    val currentTime = Utils.getDateTimestamp()
+                    if (epg.endTime <= currentTime || (epg.beginTime <= currentTime && epg.endTime > currentTime)) {
+                        listener?.onItemReplay(epg)
+                        return@setOnKeyListener true
+                    }
+                }
             }
             if (event?.action == KeyEvent.ACTION_DOWN) {
-                // If it is already the first item and you continue to move up...
                 if (keyCode == KeyEvent.KEYCODE_DPAD_UP && position == 0) {
                     val p = getItemCount() - 1
-
-                    (recyclerView.layoutManager as? LinearLayoutManager)?.scrollToPositionWithOffset(
-                        p,
-                        0
-                    )
-
+                    (recyclerView.layoutManager as? LinearLayoutManager)?.scrollToPositionWithOffset(p, 0)
                     recyclerView.postDelayed({
                         val v = recyclerView.findViewHolderForAdapterPosition(p)
                         v?.itemView?.isSelected = true
                         v?.itemView?.requestFocus()
                     }, 0)
                 }
-
-
-                // If it is the last item and you continue to move down...
                 if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN && position == getItemCount() - 1) {
                     val p = 0
-
-                    (recyclerView.layoutManager as? LinearLayoutManager)?.scrollToPositionWithOffset(
-                        p,
-                        0
-                    )
-
+                    (recyclerView.layoutManager as? LinearLayoutManager)?.scrollToPositionWithOffset(p, 0)
                     recyclerView.postDelayed({
                         val v = recyclerView.findViewHolderForAdapterPosition(p)
                         v?.itemView?.isSelected = true
                         v?.itemView?.requestFocus()
                     }, 0)
                 }
-
                 return@setOnKeyListener listener?.onKey(keyCode) == true
             }
             false
@@ -106,12 +99,7 @@ class ProgramAdapter(
         RecyclerView.ViewHolder(binding.root) {
 
         fun bindTitle(epg: EPG) {
-            binding.title.text = "${Utils.getDateFormat("HH:mm", epg.beginTime)}-${
-                Utils.getDateFormat(
-                    "HH:mm",
-                    epg.endTime
-                )
-            }"
+            binding.title.text = "${Utils.getDateFormat("HH:mm", epg.beginTime)}-${Utils.getDateFormat("HH:mm", epg.endTime)}"
             binding.description.text = epg.title
         }
 
@@ -139,7 +127,6 @@ class ProgramAdapter(
         layoutManager?.let {
             recyclerView.postDelayed({
                 it.scrollToPositionWithOffset(position, 0)
-
                 val viewHolder = recyclerView.findViewHolderForAdapterPosition(position)
                 viewHolder?.itemView?.apply {
                     isSelected = true
@@ -151,6 +138,7 @@ class ProgramAdapter(
 
     interface ItemListener {
         fun onItemFocusChange(epg: EPG, hasFocus: Boolean)
+        fun onItemReplay(epg: EPG)  // NEW: replay/catchup handler
         fun onKey(keyCode: Int): Boolean
     }
 
@@ -162,4 +150,3 @@ class ProgramAdapter(
         private const val TAG = "ProgramAdapter"
     }
 }
-
