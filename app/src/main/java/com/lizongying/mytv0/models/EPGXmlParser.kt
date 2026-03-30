@@ -15,6 +15,8 @@ class EPGXmlParser {
     private val epg = mutableMapOf<String, MutableList<EPG>>()
     private val dateFormat = SimpleDateFormat("yyyyMMddHHmmss Z", Locale.getDefault())
     private val now = getDateTimestamp()
+    // 7-day EPG support: calculate timestamp for 7 days later
+    private val sevenDaysLater = now + (7 * 24 * 3600)
 
     private fun formatFTime(s: String): Int {
         return dateFormat.parse(s)?.time?.div(1000)?.toInt() ?: 0
@@ -41,7 +43,8 @@ class EPGXmlParser {
                     val stop = parser.getAttributeValue(ns, STOP_ATTRIBUTE)
                     parser.nextTag()
                     val title = parser.nextText()
-                    if (formatFTime(stop) > now) {
+                    // 7-day EPG support: keep programs from last 7 days and currently playing
+                    if (formatFTime(stop) > now && formatFTime(start) < sevenDaysLater) {
                         epg[channel]?.add(EPG(title, formatFTime(start), formatFTime(stop)))
                     }
                 }
