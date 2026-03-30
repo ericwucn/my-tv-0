@@ -20,7 +20,6 @@ class ProgramFragment : Fragment(), ProgramAdapter.ItemListener {
     private val delay: Long = 5000
 
     private lateinit var programAdapter: ProgramAdapter
-
     private lateinit var viewModel: MainViewModel
 
     override fun onCreateView(
@@ -36,10 +35,7 @@ class ProgramFragment : Fragment(), ProgramAdapter.ItemListener {
         val context = requireActivity()
         viewModel = ViewModelProvider(context)[MainViewModel::class.java]
 
-        binding.program.setOnClickListener {
-            hideSelf()
-        }
-
+        binding.program.setOnClickListener { hideSelf() }
         onVisible()
     }
 
@@ -49,45 +45,28 @@ class ProgramFragment : Fragment(), ProgramAdapter.ItemListener {
             .commitAllowingStateLoss()
     }
 
-    private val hideRunnable = Runnable {
-        hideSelf()
-    }
+    private val hideRunnable = Runnable { hideSelf() }
 
     fun onVisible() {
         val context = requireActivity()
-
         viewModel.groupModel.getCurrent()?.let {
             val index = it.epgValue.indexOfFirst { it.endTime > Utils.getDateTimestamp() }
-            programAdapter = ProgramAdapter(
-                context,
-                binding.list,
-                it.epgValue,
-                index,
-            )
+            programAdapter = ProgramAdapter(context, binding.list, it.epgValue, index)
             binding.list.adapter = programAdapter
             binding.list.layoutManager = LinearLayoutManager(context)
-
             programAdapter.setItemListener(this)
-
             if (index > -1) {
                 programAdapter.scrollToPositionAndSelect(index)
             }
-
             handler.postDelayed(hideRunnable, delay)
         }
     }
 
-    fun onHidden() {
-        handler.removeCallbacks(hideRunnable)
-    }
+    fun onHidden() { handler.removeCallbacks(hideRunnable) }
 
     override fun onHiddenChanged(hidden: Boolean) {
         super.onHiddenChanged(hidden)
-        if (!hidden) {
-            onVisible()
-        } else {
-            onHidden()
-        }
+        if (!hidden) onVisible() else onHidden()
     }
 
     override fun onPause() {
@@ -105,9 +84,15 @@ class ProgramFragment : Fragment(), ProgramAdapter.ItemListener {
         handler.postDelayed(hideRunnable, delay)
     }
 
-    override fun onKey(keyCode: Int): Boolean {
-        return false
+    override fun onItemReplay(epg: EPG) {
+        val currentTime = Utils.getDateTimestamp()
+        val seekPosition = epg.beginTime
+        viewModel.requestReplay(epg, seekPosition)
+        Log.i(TAG, "Replay: ${epg.title}, seek: $seekPosition")
+        hideSelf()
     }
+
+    override fun onKey(keyCode: Int): Boolean = false
 
     companion object {
         private const val TAG = "ProgramFragment"
