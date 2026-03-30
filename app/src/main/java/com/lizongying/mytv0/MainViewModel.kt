@@ -46,6 +46,24 @@ class MainViewModel : ViewModel() {
     private var cacheFile: File? = null
     private var cacheChannels = ""
     private var initialized = false
+    // Replay/catchup: LiveData to notify VideoFragment about replay requests
+    private val _replayRequest = MutableLiveData<ReplayRequest?>()
+    val replayRequest: LiveData<ReplayRequest?>
+        get() = _replayRequest
+
+    /**
+     * Request replay/catchup for a specific EPG program.
+     */
+    fun requestReplay(epg: EPG, seekPosition: Int) {
+        _replayRequest.value = ReplayRequest(epg, seekPosition)
+    }
+
+    fun clearReplayRequest() {
+        _replayRequest.value = null
+    }
+
+    data class ReplayRequest(val epg: EPG, val seekPosition: Int)
+
 
     private lateinit var cacheEPG: File
     private var epgUrl = SP.epg
