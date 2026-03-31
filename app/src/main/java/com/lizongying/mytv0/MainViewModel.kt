@@ -421,6 +421,7 @@ class MainViewModel : ViewModel() {
 
                 val l = mutableListOf<TV>()
                 val tvMap = mutableMapOf<String, List<TV>>()
+                var globalCatchupSource = ""
 
                 var tv = TV()
                 for (line in lines) {
@@ -430,6 +431,7 @@ class MainViewModel : ViewModel() {
                     }
                     if (trimmedLine.startsWith("#EXTM3U")) {
                         epgUrl = epgRegex.find(trimmedLine)?.groupValues?.get(1)?.trim()
+                        globalCatchupSource = catchupSourceRegex.find(trimmedLine)?.groupValues?.get(1)?.trim() ?: ""
                     } else if (trimmedLine.startsWith("#EXTINF")) {
                         val key = tv.group + tv.name
                         if (key.isNotEmpty()) {
@@ -489,6 +491,7 @@ class MainViewModel : ViewModel() {
                         SourceType.UNKNOWN,
                         t0.number,
                         emptyList(),
+                        globalCatchupSource,
                     )
                     l.add(t1)
                 }
