@@ -13,7 +13,6 @@
         android:layout_width="100dp"
         android:layout_height="50dp"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toStartOf="@id/description"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintBottom_toBottomOf="parent"
         android:textColor="@color/description_blur"
@@ -28,7 +27,7 @@
         android:layout_width="0dp"
         android:layout_height="50dp"
         app:layout_constraintStart_toEndOf="@id/title"
-        app:layout_constraintEnd_toStartOf="@id/catchup_badge"
+        app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintBottom_toBottomOf="parent"
         android:textColor="@color/description_blur"
@@ -36,23 +35,24 @@
         android:maxLines="1"
         android:ellipsize="end"
         android:textSize="16sp"
-        android:gravity="center_vertical" />
+        android:gravity="center_vertical"
+        android:paddingEnd="52dp" />
 
-    <!-- ????:???????? -->
+    <!-- ????:????????,????? -->
     <androidx.appcompat.widget.AppCompatTextView
         android:id="@+id/catchup_badge"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginEnd="4dp"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintBottom_toBottomOf="parent"
+        android:layout_marginEnd="6dp"
         android:text="??"
         android:textSize="11sp"
         android:textColor="#FFFFFF"
         android:background="#884CAF50"
-        android:paddingStart="5dp"
-        android:paddingEnd="5dp"
+        android:paddingStart="6dp"
+        android:paddingEnd="6dp"
         android:paddingTop="2dp"
         android:paddingBottom="2dp"
         android:visibility="gone" />
