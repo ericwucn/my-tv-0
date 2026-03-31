@@ -53,4 +53,5 @@
     <string name="no_video_source">No Video Source</string>
     <string name="soft_decode">Soft Decode</string>
     <string name="epg_is_empty">EPG is empty</string>
+    <string name="catchup">Replay</string>
 </resources>
