@@ -11,6 +11,9 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.lizongying.mytv0.data.EPG
 import com.lizongying.mytv0.databinding.ProgramBinding
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class ProgramFragment : Fragment(), ProgramAdapter.ItemListener {
     private var _binding: ProgramBinding? = null
@@ -56,13 +59,16 @@ class ProgramFragment : Fragment(), ProgramAdapter.ItemListener {
     fun onVisible() {
         val context = requireActivity()
 
-        viewModel.groupModel.getCurrent()?.let {
-            val index = it.epgValue.indexOfFirst { it.endTime > Utils.getDateTimestamp() }
+        viewModel.groupModel.getCurrent()?.let { tvModel ->
+            val index = tvModel.epgValue.indexOfFirst { it.endTime > Utils.getDateTimestamp() }
+            val catchupSource = tvModel.tv.catchupSource
+
             programAdapter = ProgramAdapter(
                 context,
                 binding.list,
-                it.epgValue,
+                tvModel.epgValue,
                 index,
+                catchupSource,
             )
             binding.list.adapter = programAdapter
             binding.list.layoutManager = LinearLayoutManager(context)
@@ -107,6 +113,51 @@ class ProgramFragment : Fragment(), ProgramAdapter.ItemListener {
 
     override fun onKey(keyCode: Int): Boolean {
         return false
+    }
+
+    /**
+     * ????:? catchupSource ????????????????,
+     * ????? URL ??,???????
+     *
+     * ????:?playseek=${(b)yyyyMMddHHmmss}-${(e)yyyyMMddHHmmss}
+     */
+    override fun onCatchupClick(epg: EPG, catchupSource: String) {
+        handler.removeCallbacks(hideRunnable)
+
+        val tvModel = viewModel.groupModel.getCurrent() ?: return
+        val baseUrl = tvModel.tv.uris.firstOrNull() ?: return
+
+        // ???????
+        val catchupUrl = buildCatchupUrl(baseUrl, catchupSource, epg.beginTime, epg.endTime)
+        Log.i(TAG, "?? URL: $catchupUrl")
+
+        // ?? MainActivity ???? URL
+        (activity as? MainActivity)?.playCatchup(catchupUrl)
+
+        hideSelf()
+    }
+
+    /**
+     * ???? URL
+     * ?? ${(b)yyyyMMddHHmmss} ? ${(e)yyyyMMddHHmmss} ?????
+     */
+    private fun buildCatchupUrl(baseUrl: String, catchupSource: String, beginTime: Int, endTime: Int): String {
+        val beginDate = Date(beginTime.toLong() * 1000)
+        val endDate = Date(endTime.toLong() * 1000)
+
+        // ?? ${(b)format} ? ${(e)format} ???
+        val result = Regex("""\$\{(\([be]\))([^}]+)\}""").replace(catchupSource) { match ->
+            val type = match.groupValues[1]  // (b) ? (e)
+            val format = match.groupValues[2] // yyyyMMddHHmmss
+            val date = if (type == "(b)") beginDate else endDate
+            try {
+                SimpleDateFormat(format, Locale.getDefault()).format(date)
+            } catch (e: Exception) {
+                match.value
+            }
+        }
+
+        return baseUrl + result
     }
 
     companion object {

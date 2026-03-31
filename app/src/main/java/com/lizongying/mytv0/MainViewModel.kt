@@ -105,8 +105,8 @@ class MainViewModel : ViewModel() {
         val application = context.applicationContext as MyTVApplication
         imageHelper = application.imageHelper
 
-        groupModel.addTVListModel(TVListModel("我的收藏", 0))
-        groupModel.addTVListModel(TVListModel("全部頻道", 1))
+        groupModel.addTVListModel(TVListModel("????", 0))
+        groupModel.addTVListModel(TVListModel("????", 1))
 
         appDirectory = context.filesDir
         cacheFile = File(appDirectory, CACHE_FILE_NAME)
@@ -403,7 +403,7 @@ class MainViewModel : ViewModel() {
             '[' -> {
                 try {
                     list = gson.fromJson(string, typeTvList)
-                    Log.i(TAG, "导入频道 ${list.size} $list")
+                    Log.i(TAG, "???? ${list.size} $list")
                 } catch (e: Exception) {
                     Log.e(TAG, "str2Channels", e)
                     return false
@@ -417,6 +417,7 @@ class MainViewModel : ViewModel() {
                 val numRegex = Regex("""tvg-chno="([^"]+)"""")
                 val epgRegex = Regex("""x-tvg-url="([^"]+)"""")
                 val groupRegex = Regex("""group-title="([^"]+)"""")
+                val catchupSourceRegex = Regex("""catchup-source="([^"]+)"""")
 
                 val l = mutableListOf<TV>()
                 val tvMap = mutableMapOf<String, List<TV>>()
@@ -444,6 +445,7 @@ class MainViewModel : ViewModel() {
                         tv.number =
                             numRegex.find(info.first())?.groupValues?.get(1)?.trim()?.toInt() ?: -1
                         tv.group = groupRegex.find(info.first())?.groupValues?.get(1)?.trim() ?: ""
+                        tv.catchupSource = catchupSourceRegex.find(info.first())?.groupValues?.get(1)?.trim() ?: ""
                     } else if (trimmedLine.startsWith("#EXTVLCOPT:http-")) {
                         val keyValue =
                             trimmedLine.substringAfter("#EXTVLCOPT:http-").split("=", limit = 2)
@@ -491,7 +493,7 @@ class MainViewModel : ViewModel() {
                     l.add(t1)
                 }
                 list = l
-                Log.i(TAG, "导入频道 ${list.size} $list")
+                Log.i(TAG, "???? ${list.size} $list")
             }
 
             else -> {
@@ -542,8 +544,8 @@ class MainViewModel : ViewModel() {
                     l.add(tv)
                 }
                 list = l
-                Log.d(TAG, "导入频道 $list")
-                Log.i(TAG, "导入频道 ${list.size}")
+                Log.d(TAG, "???? $list")
+                Log.i(TAG, "???? ${list.size}")
             }
         }
 
@@ -561,7 +563,7 @@ class MainViewModel : ViewModel() {
         var groupIndex = 2
         var id = 0
         for ((k, v) in map) {
-            val listTVModel = TVListModel(k.ifEmpty { "未知" }, groupIndex)
+            val listTVModel = TVListModel(k.ifEmpty { "??" }, groupIndex)
             for ((listIndex, v1) in v.withIndex()) {
                 v1.tv.id = id
                 v1.setLike(SP.getLike(id))
@@ -577,7 +579,7 @@ class MainViewModel : ViewModel() {
 
         listModel = listModelNew
 
-        // 全部频道
+        // ????
         groupModel.tvGroupValue[1].setTVListModel(listModel)
 
         if (string != cacheChannels && g.encode(string) != cacheChannels) {
