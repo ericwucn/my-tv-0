@@ -28,27 +28,34 @@ class EPGXmlParser {
             parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false)
             parser.setInput(input, null)
             parser.nextTag()
-            var channel = ""
+            var currentChannel = ""
+            
             while (parser.eventType != XmlPullParser.END_DOCUMENT) {
                 if (parser.eventType != XmlPullParser.START_TAG) {
                     parser.next()
                     continue
                 }
+                
                 if (parser.name == CHANNEL_TAG) {
-                    // Fix: Use 'id' attribute instead of <display-name> content
-                    channel = parser.getAttributeValue(ns, "id")
-                    epg[channel] = mutableListOf()
-                    // Skip display-name element
+                    // Parse channel: <channel id="80"><display-name>东方卫视</display-name></channel>
+                    // Use the 'id' attribute as the key (matches M3U tvg-id)
+                    currentChannel = parser.getAttributeValue(ns, ID_ATTRIBUTE)
+                    epg[currentChannel] = mutableListOf()
+                    // Skip display-name
                     parser.nextTag()
                     parser.nextText()
                 } else if (parser.name == PROGRAMME_TAG) {
+                    // Parse programme: <programme channel="80" start="..." stop="...">
+                    val channel = parser.getAttributeValue(ns, CHANNEL_ATTRIBUTE)
                     val start = parser.getAttributeValue(ns, START_ATTRIBUTE)
                     val stop = parser.getAttributeValue(ns, STOP_ATTRIBUTE)
                     parser.nextTag()
                     val title = parser.nextText()
-                    // 7-day replay support: keep programs that ended within the last 7 days
-                    if (formatFTime(stop) > sevenDaysAgo) {
-                        epg[channel]?.add(EPG(title, formatFTime(start), formatFTime(stop)))
+                    
+                    // 7-day replay: show programmes that ended within the last 7 days
+                    val stopTime = formatFTime(stop)
+                    if (stopTime > sevenDaysAgo) {
+                        epg[channel]?.add(EPG(title, formatFTime(start), stopTime))
                     }
                 }
                 parser.next()
@@ -61,6 +68,8 @@ class EPGXmlParser {
     companion object {
         private const val CHANNEL_TAG = "channel"
         private const val PROGRAMME_TAG = "programme"
+        private const val ID_ATTRIBUTE = "id"
+        private const val CHANNEL_ATTRIBUTE = "channel"
         private const val START_ATTRIBUTE = "start"
         private const val STOP_ATTRIBUTE = "stop"
     }
