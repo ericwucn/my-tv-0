@@ -31,7 +31,7 @@ class EPGXmlParser {
     }
 
     /**
-     * 与 v1.4.0.0 完全相同
+     * 与 v1.4.0.0 完全相同 - 直接尝试 GZIPInputStream
      */
     private fun decompressIfGzip(inputStream: InputStream): InputStream {
         return try {
