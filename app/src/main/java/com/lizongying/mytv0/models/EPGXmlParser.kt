@@ -6,21 +6,16 @@ import com.lizongying.mytv0.Utils.getDateTimestamp
 import com.lizongying.mytv0.data.EPG
 import org.xmlpull.v1.XmlPullParser
 import java.io.InputStream
-import java.io.PushbackInputStream
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.zip.GZIPInputStream
 
 
 /**
- * EPG XML Parser
- * - Supports gzip compressed streams (.xml.gz), e.g. http://e.erw.cc/all.xml.gz
- * - Preserves 7-day EPG history
- * - Uses display-name as channel key
- * 
- * Fix: Use PushbackInputStream to safely handle non-gzip input.
- * Original bug: GZIPInputStream(inputStream) consumes bytes on failure,
- *               corrupting the stream for XML parsing.
+ * EPG XML Parser - 与 v1.4.0.0 完全一致
+ * - 支持 gzip 压缩的流 (.xml.gz)
+ * - 保留 7 天 EPG 历史
+ * - 使用 display-name 作为 channel key
  */
 class EPGXmlParser {
 
@@ -29,53 +24,28 @@ class EPGXmlParser {
     private val channelNames = mutableMapOf<String, String>()  // id -> display-name
     private val dateFormat = SimpleDateFormat("yyyyMMddHHmmss Z", Locale.getDefault())
     private val now = getDateTimestamp()
-    private val sevenDaysAgo = now - 604800  // 7 days in seconds (same as v1.4.0.0)
+    private val sevenDaysAgo = now - 604800  // 7 天
 
     private fun formatFTime(s: String): Int {
         return dateFormat.parse(s)?.time?.div(1000)?.toInt() ?: 0
     }
 
     /**
-     * Detects gzip format and returns appropriate decompressing stream.
-     * Fix: Use PushbackInputStream to safely unread bytes after checking magic.
+     * 与 v1.4.0.0 完全相同
      */
     private fun decompressIfGzip(inputStream: InputStream): InputStream {
-        // Read first 2 bytes to check for gzip magic (0x1f 0x8b)
-        val buffer = ByteArray(2)
-        val bytesRead = inputStream.read(buffer)
-        
-        if (bytesRead < 2) {
-            // Not enough bytes, return original stream
-            return inputStream
-        }
-        
-        // Check gzip magic bytes: 0x1f 0x8b (RFC 1952)
-        val isGzip = (buffer[0].toInt() and 0xff) == 0x1f && (buffer[1].toInt() and 0xff) == 0x8b
-        
-        if (isGzip) {
-            // Push bytes back and wrap with PushbackInputStream for GZIPInputStream
-            val pushbackStream = PushbackInputStream(inputStream, 2)
-            pushbackStream.unread(buffer)
-            try {
-                val gzipStream = GZIPInputStream(pushbackStream)
-                Log.i(TAG, "EPG: gzip detected, decompressing")
-                return gzipStream
-            } catch (e: Exception) {
-                Log.w(TAG, "EPG: gzip decode failed: ${e.message}")
-                // Return pushback stream so caller can try reading as plain XML
-                return pushbackStream
-            }
-        } else {
-            // Not gzip - push bytes back so caller reads from byte 0
-            val pushbackStream = PushbackInputStream(inputStream, 2)
-            pushbackStream.unread(buffer)
-            Log.i(TAG, "EPG: not gzip, using plain XML stream")
-            return pushbackStream
+        return try {
+            val gzipStream = GZIPInputStream(inputStream)
+            Log.i(TAG, "gzip 解码,成功")
+            gzipStream
+        } catch (e: Exception) {
+            Log.i(TAG, "普通 XML 流")
+            inputStream
         }
     }
 
     fun parse(inputStream: InputStream): Map<String, List<EPG>> {
-        // Handle gzip detection (e.g. .xml.gz EPG from http://e.erw.cc/all.xml.gz)
+        // 处理 gzip
         val decompressedStream = decompressIfGzip(inputStream)
 
         decompressedStream.use { input ->
@@ -107,7 +77,7 @@ class EPGXmlParser {
                     parser.nextTag()
                     val title = parser.nextText()
 
-                    // Preserve programs from the last 7 days
+                    // 保留最近 7 天的节目
                     val stopTime = formatFTime(stop)
                     if (stopTime > sevenDaysAgo) {
                         val channelName = channelNames[channelId] ?: channelId
@@ -119,7 +89,7 @@ class EPGXmlParser {
             }
         }
 
-        Log.i(TAG, "EPG loaded: ${epg.size} channels, 7-day history")
+        Log.i(TAG, "EPG 加载: ${epg.size} 频道,7天历史")
         return epg.toSortedMap { a, b -> b.compareTo(a) }
     }
 
