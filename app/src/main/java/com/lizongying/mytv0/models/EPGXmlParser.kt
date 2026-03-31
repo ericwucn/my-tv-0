@@ -5,17 +5,19 @@ import android.util.Xml
 import com.lizongying.mytv0.Utils.getDateTimestamp
 import com.lizongying.mytv0.data.EPG
 import org.xmlpull.v1.XmlPullParser
+import java.io.BufferedInputStream
 import java.io.InputStream
+import java.io.PushbackInputStream
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.zip.GZIPInputStream
 
 
 /**
- * EPG XML ???
- * - ?? gzip ???? (.xml.gz) ????,?? http://e.erw.cc/all.xml.gz ? EPG ?
- * - ?? 7 ? EPG ??(???,???? 7 ???)
- * - ?? display-name ???? key,?????????
+ * EPG XML Parser
+ * - Supports gzip compressed streams (.xml.gz), e.g. http://e.erw.cc/all.xml.gz
+ * - Preserves 7-day EPG history
+ * - Uses display-name as channel key
  */
 class EPGXmlParser {
 
@@ -23,7 +25,7 @@ class EPGXmlParser {
     private val epg = mutableMapOf<String, MutableList<EPG>>()
     private val dateFormat = SimpleDateFormat("yyyyMMddHHmmss Z", Locale.getDefault())
     private val now = getDateTimestamp()
-    // 7 ?????,??????
+    // 7 days ago, for preserving historical EPG
     private val sevenDaysAgo = now - 7 * 24 * 60 * 60
 
     private fun formatFTime(s: String): Int {
@@ -31,22 +33,47 @@ class EPGXmlParser {
     }
 
     /**
-     * ??????? gzip ?????
-     * ?? .xml.gz ?? EPG ?(? http://e.erw.cc/all.xml.gz)
+     * Detects gzip format and returns appropriate decompressing stream.
+     * Fix: check magic bytes (0x1f 0x8b) BEFORE deciding.
+     * OLD BUG: GZIPInputStream(inputStream) consumes bytes on failure, corrupting
+     *          the stream when input is NOT gzip.
      */
     private fun decompressIfGzip(inputStream: InputStream): InputStream {
-        return try {
-            val gzipStream = GZIPInputStream(inputStream)
-            Log.i(TAG, "EPG: gzip ??,????")
-            gzipStream
-        } catch (e: Exception) {
-            Log.i(TAG, "EPG: ?? XML ??")
-            inputStream
+        // Buffer to get mark/reset support
+        val buffered = BufferedInputStream(inputStream)
+        buffered.mark(2)
+        val magic = ByteArray(2)
+        val bytesRead = buffered.read(magic)
+
+        if (bytesRead < 2) {
+            // Not enough bytes, return as-is
+            buffered.reset()
+            return buffered
+        }
+
+        val isGzip = (magic[0].toInt() and 0xff) == 0x1f && (magic[1].toInt() and 0xff) == 0x8b
+
+        if (isGzip) {
+            // Reset and let GZIPInputStream read from beginning
+            buffered.reset()
+            try {
+                val gzipStream = GZIPInputStream(buffered)
+                Log.i(TAG, "EPG: gzip detected, decompressing")
+                return gzipStream
+            } catch (e: Exception) {
+                Log.w(TAG, "EPG: gzip decode failed: ${e.message}")
+                buffered.reset()
+                return buffered
+            }
+        } else {
+            // Not gzip - reset so caller reads from byte 0
+            buffered.reset()
+            Log.i(TAG, "EPG: not gzip, using plain XML stream")
+            return buffered
         }
     }
 
     fun parse(inputStream: InputStream): Map<String, List<EPG>> {
-        // ???? gzip(?? .xml.gz EPG ?)
         val decompressedStream = decompressIfGzip(inputStream)
 
         decompressedStream.use { input ->
@@ -70,7 +97,7 @@ class EPGXmlParser {
                     parser.nextTag()
                     val title = parser.nextText()
                     val stopTime = formatFTime(stop)
-                    // ?? 7 ????(???)
+                    // Preserve programs from the last 7 days
                     if (stopTime > sevenDaysAgo) {
                         epg[channel]?.add(EPG(title, formatFTime(start), stopTime))
                     }
@@ -79,7 +106,7 @@ class EPGXmlParser {
             }
         }
 
-        Log.i(TAG, "EPG ????: ${epg.size} ???,7???")
+        Log.i(TAG, "EPG loaded: ${epg.size} channels, 7-day history")
         return epg.toSortedMap { a, b -> b.compareTo(a) }
     }
 
