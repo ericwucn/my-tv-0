@@ -116,6 +116,13 @@ class MainViewModel : ViewModel() {
 
         cacheChannels = getCache()
 
+        // 检测旧版本缓存（不含 catchupSource 字段），清除后重新从网络加载
+        if (cacheChannels.isNotEmpty() && !cacheChannels.contains("catchupSource")) {
+            Log.i(TAG, "检测到旧版本缓存，清除以重新加载（支持回看功能）")
+            cacheFile!!.writeText("")
+            cacheChannels = ""
+        }
+
         if (cacheChannels.isEmpty()) {
             Log.i(TAG, "cacheChannels isEmpty")
             cacheChannels =
@@ -447,7 +454,7 @@ class MainViewModel : ViewModel() {
                         tv.number =
                             numRegex.find(info.first())?.groupValues?.get(1)?.trim()?.toInt() ?: -1
                         tv.group = groupRegex.find(info.first())?.groupValues?.get(1)?.trim() ?: ""
-                        tv.catchupSource = catchupSourceRegex.find(info.first())?.groupValues?.get(1)?.trim() ?: ""
+                        // catchupSource 来自 #EXTM3U 全局头行，在 tvMap 合并时统一赋值
                     } else if (trimmedLine.startsWith("#EXTVLCOPT:http-")) {
                         val keyValue =
                             trimmedLine.substringAfter("#EXTVLCOPT:http-").split("=", limit = 2)
