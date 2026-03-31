@@ -5,7 +5,6 @@ import android.util.Xml
 import com.lizongying.mytv0.Utils.getDateTimestamp
 import com.lizongying.mytv0.data.EPG
 import org.xmlpull.v1.XmlPullParser
-import java.io.BufferedInputStream
 import java.io.InputStream
 import java.io.PushbackInputStream
 import java.text.SimpleDateFormat
@@ -18,15 +17,19 @@ import java.util.zip.GZIPInputStream
  * - Supports gzip compressed streams (.xml.gz), e.g. http://e.erw.cc/all.xml.gz
  * - Preserves 7-day EPG history
  * - Uses display-name as channel key
+ * 
+ * Fix: Use PushbackInputStream to safely handle non-gzip input.
+ * Original bug: GZIPInputStream(inputStream) consumes bytes on failure,
+ *               corrupting the stream for XML parsing.
  */
 class EPGXmlParser {
 
     private val ns: String? = null
     private val epg = mutableMapOf<String, MutableList<EPG>>()
+    private val channelNames = mutableMapOf<String, String>()  // id -> display-name
     private val dateFormat = SimpleDateFormat("yyyyMMddHHmmss Z", Locale.getDefault())
     private val now = getDateTimestamp()
-    // 7 days ago, for preserving historical EPG
-    private val sevenDaysAgo = now - 7 * 24 * 60 * 60
+    private val sevenDaysAgo = now - 604800  // 7 days in seconds (same as v1.4.0.0)
 
     private fun formatFTime(s: String): Int {
         return dateFormat.parse(s)?.time?.div(1000)?.toInt() ?: 0
@@ -34,46 +37,45 @@ class EPGXmlParser {
 
     /**
      * Detects gzip format and returns appropriate decompressing stream.
-     * Fix: check magic bytes (0x1f 0x8b) BEFORE deciding.
-     * OLD BUG: GZIPInputStream(inputStream) consumes bytes on failure, corrupting
-     *          the stream when input is NOT gzip.
+     * Fix: Use PushbackInputStream to safely unread bytes after checking magic.
      */
     private fun decompressIfGzip(inputStream: InputStream): InputStream {
-        // Buffer to get mark/reset support
-        val buffered = BufferedInputStream(inputStream)
-        buffered.mark(2)
-        val magic = ByteArray(2)
-        val bytesRead = buffered.read(magic)
-
+        // Read first 2 bytes to check for gzip magic (0x1f 0x8b)
+        val buffer = ByteArray(2)
+        val bytesRead = inputStream.read(buffer)
+        
         if (bytesRead < 2) {
-            // Not enough bytes, return as-is
-            buffered.reset()
-            return buffered
+            // Not enough bytes, return original stream
+            return inputStream
         }
-
-        val isGzip = (magic[0].toInt() and 0xff) == 0x1f && (magic[1].toInt() and 0xff) == 0x8b
-
+        
+        // Check gzip magic bytes: 0x1f 0x8b (RFC 1952)
+        val isGzip = (buffer[0].toInt() and 0xff) == 0x1f && (buffer[1].toInt() and 0xff) == 0x8b
+        
         if (isGzip) {
-            // Reset and let GZIPInputStream read from beginning
-            buffered.reset()
+            // Push bytes back and wrap with PushbackInputStream for GZIPInputStream
+            val pushbackStream = PushbackInputStream(inputStream, 2)
+            pushbackStream.unread(buffer)
             try {
-                val gzipStream = GZIPInputStream(buffered)
+                val gzipStream = GZIPInputStream(pushbackStream)
                 Log.i(TAG, "EPG: gzip detected, decompressing")
                 return gzipStream
             } catch (e: Exception) {
                 Log.w(TAG, "EPG: gzip decode failed: ${e.message}")
-                buffered.reset()
-                return buffered
+                // Return pushback stream so caller can try reading as plain XML
+                return pushbackStream
             }
         } else {
-            // Not gzip - reset so caller reads from byte 0
-            buffered.reset()
+            // Not gzip - push bytes back so caller reads from byte 0
+            val pushbackStream = PushbackInputStream(inputStream, 2)
+            pushbackStream.unread(buffer)
             Log.i(TAG, "EPG: not gzip, using plain XML stream")
-            return buffered
+            return pushbackStream
         }
     }
 
     fun parse(inputStream: InputStream): Map<String, List<EPG>> {
+        // Handle gzip detection (e.g. .xml.gz EPG from http://e.erw.cc/all.xml.gz)
         val decompressedStream = decompressIfGzip(inputStream)
 
         decompressedStream.use { input ->
@@ -81,25 +83,36 @@ class EPGXmlParser {
             parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false)
             parser.setInput(input, null)
             parser.nextTag()
-            var channel = ""
+
             while (parser.eventType != XmlPullParser.END_DOCUMENT) {
                 if (parser.eventType != XmlPullParser.START_TAG) {
                     parser.next()
                     continue
                 }
+
                 if (parser.name == CHANNEL_TAG) {
+                    // <channel id="80"><display-name>xxx</display-name></channel>
+                    val channelId = parser.getAttributeValue(ns, ID_ATTRIBUTE)
                     parser.nextTag()
-                    channel = parser.nextText()
-                    epg[channel] = mutableListOf()
+                    if (parser.name == DISPLAY_NAME_TAG) {
+                        val displayName = parser.nextText()
+                        channelNames[channelId] = displayName
+                        epg[displayName] = mutableListOf()
+                    }
                 } else if (parser.name == PROGRAMME_TAG) {
+                    // <programme channel="80" start="..." stop="...">
+                    val channelId = parser.getAttributeValue(ns, CHANNEL_ATTRIBUTE)
                     val start = parser.getAttributeValue(ns, START_ATTRIBUTE)
                     val stop = parser.getAttributeValue(ns, STOP_ATTRIBUTE)
                     parser.nextTag()
                     val title = parser.nextText()
-                    val stopTime = formatFTime(stop)
+
                     // Preserve programs from the last 7 days
+                    val stopTime = formatFTime(stop)
                     if (stopTime > sevenDaysAgo) {
-                        epg[channel]?.add(EPG(title, formatFTime(start), stopTime))
+                        val channelName = channelNames[channelId] ?: channelId
+                        epg.getOrPut(channelName) { mutableListOf() }
+                            .add(EPG(title, formatFTime(start), stopTime))
                     }
                 }
                 parser.next()
@@ -114,7 +127,10 @@ class EPGXmlParser {
         private const val TAG = "EPGXmlParser"
         private const val CHANNEL_TAG = "channel"
         private const val PROGRAMME_TAG = "programme"
+        private const val ID_ATTRIBUTE = "id"
+        private const val CHANNEL_ATTRIBUTE = "channel"
         private const val START_ATTRIBUTE = "start"
         private const val STOP_ATTRIBUTE = "stop"
+        private const val DISPLAY_NAME_TAG = "display-name"
     }
 }
