@@ -399,20 +399,40 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * ???? URL
-     * ? ProgramFragment ????????????
+     * 播放回放 URL
+     * 从 ProgramFragment 点击节目单中的回放节目时调用
      */
     fun playCatchup(catchupUrl: String) {
         Log.i(TAG, "playCatchup: $catchupUrl")
         val tvModel = viewModel.groupModel.getCurrent() ?: return
-        // ??????? URI ?????,????????
-        val originalUris = tvModel.tv.uris
-        tvModel.tv = tvModel.tv.copy(uris = listOf(catchupUrl) + originalUris.drop(1))
+        
+        // 保存原始 URI 和回放状态
+        if (!tvModel.isInCatchupMode) {
+            tvModel.catchupOriginalUris = tvModel.tv.uris
+        }
+        tvModel.isInCatchupMode = true
+        
+        // 只使用回放 URL
+        tvModel.tv = tvModel.tv.copy(uris = listOf(catchupUrl))
         tvModel.setReady()
-        // ????????? URI(?? onPlayEnd ?????????)
-        handler.postDelayed({
+        
+        R.string.catchup_playing.showToast()
+    }
+
+    /**
+     * 退出回放模式，恢复直播流
+     */
+    fun exitCatchupMode() {
+        val tvModel = viewModel.groupModel.getCurrent() ?: return
+        if (!tvModel.isInCatchupMode) return
+        
+        tvModel.catchupOriginalUris?.let { originalUris ->
             tvModel.tv = tvModel.tv.copy(uris = originalUris)
-        }, 500)
+            tvModel.isInCatchupMode = false
+            tvModel.catchupOriginalUris = null
+            tvModel.setReady()
+            Log.i(TAG, "exitCatchupMode: restored to live stream")
+        }
     }
 
     fun prev() {
