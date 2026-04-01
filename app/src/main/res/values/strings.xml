@@ -54,4 +54,5 @@
     <string name="soft_decode">Soft Decode</string>
     <string name="epg_is_empty">EPG is empty</string>
     <string name="catchup">Replay</string>
+    <string name="catchup_playing">Playing replay</string>
 </resources>
