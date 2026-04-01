@@ -12,10 +12,10 @@ import java.util.zip.GZIPInputStream
 
 
 /**
- * EPG XML Parser - 与 v1.4.0.0 完全一致
- * - 支持 gzip 压缩的流 (.xml.gz)
- * - 保留 7 天 EPG 历史
- * - 使用 display-name 作为 channel key
+ * EPG XML ???
+ * - ?? gzip ???? (.xml.gz) ????
+ * - ?? 7 ? EPG ??(???)
+ * - ?? display-name ????,???????
  */
 class EPGXmlParser {
 
@@ -24,28 +24,28 @@ class EPGXmlParser {
     private val channelNames = mutableMapOf<String, String>()  // id -> display-name
     private val dateFormat = SimpleDateFormat("yyyyMMddHHmmss Z", Locale.getDefault())
     private val now = getDateTimestamp()
-    private val sevenDaysAgo = now - 604800  // 7 天
+    private val sevenDaysAgo = now - 604800  // 7 ??,????
 
     private fun formatFTime(s: String): Int {
         return dateFormat.parse(s)?.time?.div(1000)?.toInt() ?: 0
     }
 
     /**
-     * 与 v1.4.0.0 完全相同 - 直接尝试 GZIPInputStream
+     * ??????? gzip ??(?? .xml.gz EPG ?)
      */
     private fun decompressIfGzip(inputStream: InputStream): InputStream {
         return try {
             val gzipStream = GZIPInputStream(inputStream)
-            Log.i(TAG, "gzip 解码,成功")
+            Log.i(TAG, "gzip ??,????")
             gzipStream
         } catch (e: Exception) {
-            Log.i(TAG, "普通 XML 流")
+            Log.i(TAG, "?? XML ??")
             inputStream
         }
     }
 
     fun parse(inputStream: InputStream): Map<String, List<EPG>> {
-        // 处理 gzip
+        // ???? gzip(?? http://e.erw.cc/all.xml.gz ??? EPG ?)
         val decompressedStream = decompressIfGzip(inputStream)
 
         decompressedStream.use { input ->
@@ -61,7 +61,7 @@ class EPGXmlParser {
                 }
 
                 if (parser.name == CHANNEL_TAG) {
-                    // <channel id="80"><display-name>xxx</display-name></channel>
+                    // <channel id="80"><display-name>????</display-name></channel>
                     val channelId = parser.getAttributeValue(ns, ID_ATTRIBUTE)
                     parser.nextTag()
                     if (parser.name == DISPLAY_NAME_TAG) {
@@ -77,7 +77,7 @@ class EPGXmlParser {
                     parser.nextTag()
                     val title = parser.nextText()
 
-                    // 保留最近 7 天的节目
+                    // 7 ??????(????)
                     val stopTime = formatFTime(stop)
                     if (stopTime > sevenDaysAgo) {
                         val channelName = channelNames[channelId] ?: channelId
@@ -89,7 +89,7 @@ class EPGXmlParser {
             }
         }
 
-        Log.i(TAG, "EPG 加载: ${epg.size} 频道,7天历史")
+        Log.i(TAG, "EPG ????: ${epg.size} ???,7???")
         return epg.toSortedMap { a, b -> b.compareTo(a) }
     }
 
