@@ -28,6 +28,10 @@ class TVModel(var tv: TV) : ViewModel() {
     var retryMaxTimes = 10
     var programUpdateTime = 0L
 
+    // 回放相关字段
+    var catchupOriginalUris: List<String>? = null
+    var isInCatchupMode: Boolean = false
+
     private var _groupIndex = 0
     val groupIndex: Int
         get() = if (SP.showAllChannels || _groupIndex == 0) _groupIndex else _groupIndex - 1
