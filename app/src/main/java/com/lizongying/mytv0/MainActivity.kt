@@ -416,6 +416,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     fun prev() {
+        exitCatchupMode()
         val prevGroup = viewModel.groupModel.positionValue
         val tvModel =
             if (SP.defaultLike && viewModel.groupModel.isInLikeMode && viewModel.groupModel.getFavoritesList() != null) {
@@ -433,6 +434,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     fun next() {
+        exitCatchupMode()
         val prevGroup = viewModel.groupModel.positionValue
         val tvModel =
             if (SP.defaultLike && viewModel.groupModel.isInLikeMode && viewModel.groupModel.getFavoritesList() != null) {
