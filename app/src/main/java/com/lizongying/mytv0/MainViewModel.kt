@@ -33,6 +33,7 @@ import io.github.lizongying.Gua
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.io.InputStream
 
@@ -241,33 +242,47 @@ class MainViewModel : ViewModel() {
         }
     }
 
+    /**
+     * 更新 EPG 数据
+     * 支持多个 EPG 源地址（逗号分隔）
+     * 添加 30 秒超时控制，防止网络阻塞
+     */
     private suspend fun updateEPG(url: String): Boolean {
         val urls = url.split(",").flatMap { u -> getUrls(u) }
 
         var success = false
         for (a in urls) {
             Log.i(TAG, "request $a")
-            withContext(Dispatchers.IO) {
-                try {
-                    val request = okhttp3.Request.Builder().url(a).build()
-                    val response = HttpClient.okHttpClient.newCall(request).execute()
+            // 添加超时控制，防止网络请求阻塞启动
+            val result = withTimeoutOrNull(30_000) {
+                withContext(Dispatchers.IO) {
+                    try {
+                        val request = okhttp3.Request.Builder().url(a).build()
+                        val response = HttpClient.okHttpClient.newCall(request).execute()
 
-                    if (response.isSuccessful) {
-                        if (readEPG(response.bodyAlias()!!.byteStream())) {
-                            Log.i(TAG, "EPG $a success")
-                            success = true
+                        if (response.isSuccessful) {
+                            if (readEPG(response.bodyAlias()!!.byteStream())) {
+                                Log.i(TAG, "EPG $a success")
+                                true
+                            } else {
+                                false
+                            }
+                        } else {
+                            Log.e(TAG, "EPG $a ${response.codeAlias()}")
+                            false
                         }
-                    } else {
-                        Log.e(TAG, "EPG $a ${response.codeAlias()}")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "EPG $a error: ${e.message}")
+                        false
                     }
-                } catch (e: Exception) {
-//                    Log.e(TAG, "EPG $a error", e)
-                    Log.e(TAG, "EPG $a error")
                 }
             }
 
-            if (success) {
+            if (result == true) {
+                success = true
                 break
+            } else if (result == null) {
+                Log.w(TAG, "EPG $a timeout after 30s")
             }
         }
 
@@ -410,7 +425,7 @@ class MainViewModel : ViewModel() {
             '[' -> {
                 try {
                     list = gson.fromJson(string, typeTvList)
-                    Log.i(TAG, "???? ${list.size} $list")
+                    Log.i(TAG, "json解析完成 ${list.size} 个频道")
                 } catch (e: Exception) {
                     Log.e(TAG, "str2Channels", e)
                     return false
@@ -424,10 +439,11 @@ class MainViewModel : ViewModel() {
                 val numRegex = Regex("""tvg-chno="([^"]+)"""")
                 val epgRegex = Regex("""x-tvg-url="([^"]+)"""")
                 val groupRegex = Regex("""group-title="([^"]+)"""")
+                // 回看支持：解析每个频道的独立 catchup-source
                 val catchupSourceRegex = Regex("""catchup-source="([^"]+)"""")
 
                 val l = mutableListOf<TV>()
-                val tvMap = mutableMapOf<String, List<TV>>()
+                val tvMap = mutableMapOf<String, MutableList<TV>>()
                 var globalCatchupSource = ""
 
                 var tv = TV()
@@ -437,24 +453,38 @@ class MainViewModel : ViewModel() {
                         continue
                     }
                     if (trimmedLine.startsWith("#EXTM3U")) {
+                        // 解析全局 EPG URL
                         epgUrl = epgRegex.find(trimmedLine)?.groupValues?.get(1)?.trim()
+                        // 解析全局回看源模板（作为默认值）
                         globalCatchupSource = catchupSourceRegex.find(trimmedLine)?.groupValues?.get(1)?.trim() ?: ""
+                        Log.d(TAG, "全局 catchupSource: $globalCatchupSource")
                     } else if (trimmedLine.startsWith("#EXTINF")) {
+                        // 保存上一个 TV 到 map
                         val key = tv.group + tv.name
                         if (key.isNotEmpty()) {
-                            tvMap[key] =
-                                if (!tvMap.containsKey(key)) listOf(tv) else tvMap[key]!! + tv
+                            if (!tvMap.containsKey(key)) {
+                                tvMap[key] = mutableListOf()
+                            }
+                            tvMap[key]!!.add(tv)
                         }
+                        
+                        // 创建新的 TV 对象
                         tv = TV()
                         val info = trimmedLine.split(",")
                         tv.title = info.last().trim()
                         var name = nameRegex.find(info.first())?.groupValues?.get(1)?.trim()
                         tv.name = if (name.isNullOrEmpty()) tv.title else name
                         tv.logo = logRegex.find(info.first())?.groupValues?.get(1)?.trim() ?: ""
-                        tv.number =
-                            numRegex.find(info.first())?.groupValues?.get(1)?.trim()?.toInt() ?: -1
+                        tv.number = numRegex.find(info.first())?.groupValues?.get(1)?.trim()?.toInt() ?: -1
                         tv.group = groupRegex.find(info.first())?.groupValues?.get(1)?.trim() ?: ""
-                        // catchupSource 来自 #EXTM3U 全局头行，在 tvMap 合并时统一赋值
+                        
+                        // 【修复】解析每个频道独立的 catchup-source，若无则使用全局默认值
+                        val lineCatchupSource = catchupSourceRegex.find(info.first())?.groupValues?.get(1)?.trim()
+                        tv.catchupSource = lineCatchupSource ?: globalCatchupSource
+                        
+                        if (tv.catchupSource.isNotEmpty()) {
+                            Log.d(TAG, "频道 ${tv.name} catchupSource: ${tv.catchupSource}")
+                        }
                     } else if (trimmedLine.startsWith("#EXTVLCOPT:http-")) {
                         val keyValue =
                             trimmedLine.substringAfter("#EXTVLCOPT:http-").split("=", limit = 2)
@@ -477,13 +507,25 @@ class MainViewModel : ViewModel() {
                         }
                     }
                 }
+                
+                // 保存最后一个 TV
                 val key = tv.group + tv.name
                 if (key.isNotEmpty()) {
-                    tvMap[key] = if (!tvMap.containsKey(key)) listOf(tv) else tvMap[key]!! + tv
+                    if (!tvMap.containsKey(key)) {
+                        tvMap[key] = mutableListOf()
+                    }
+                    tvMap[key]!!.add(tv)
                 }
-                for ((_, tv) in tvMap) {
-                    val uris = tv.map { t -> t.uris }.flatten()
-                    val t0 = tv[0]
+                
+                // 合并同名频道（保留每个频道独立的 catchupSource）
+                for ((_, tvList) in tvMap) {
+                    val uris = tvList.flatMap { t -> t.uris }
+                    val t0 = tvList[0]
+                    
+                    // 查找第一个有 catchupSource 的频道作为默认
+                    val catchupSource = tvList.firstOrNull { it.catchupSource.isNotEmpty() }?.catchupSource 
+                        ?: globalCatchupSource
+                    
                     val t1 = TV(
                         -1,
                         t0.name,
@@ -498,12 +540,12 @@ class MainViewModel : ViewModel() {
                         SourceType.UNKNOWN,
                         t0.number,
                         emptyList(),
-                        globalCatchupSource,
+                        catchupSource,
                     )
                     l.add(t1)
                 }
                 list = l
-                Log.i(TAG, "???? ${list.size} $list")
+                Log.i(TAG, "m3u解析完成 ${list.size} 个频道")
             }
 
             else -> {
@@ -554,8 +596,8 @@ class MainViewModel : ViewModel() {
                     l.add(tv)
                 }
                 list = l
-                Log.d(TAG, "???? $list")
-                Log.i(TAG, "???? ${list.size}")
+                Log.d(TAG, "txt解析 $list")
+                Log.i(TAG, "txt解析完成 ${list.size} 个频道")
             }
         }
 

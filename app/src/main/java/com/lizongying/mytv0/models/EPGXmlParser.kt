@@ -12,10 +12,19 @@ import java.util.zip.GZIPInputStream
 
 
 /**
- * EPG XML Parser - 与 v1.4.0.0 完全一致
+ * EPG XML Parser
+ * 
+ * 功能：
+ * - 解析 XMLTV 格式的 EPG 数据
  * - 支持 gzip 压缩的流 (.xml.gz)
- * - 保留 7 天 EPG 历史
+ * - 保留 7 天 EPG 历史（动态计算时间范围）
  * - 使用 display-name 作为 channel key
+ * 
+ * 支持的 XML 格式：
+ * <channel id="80"><display-name>CCTV1</display-name></channel>
+ * <programme channel="80" start="20240101120000 +0800" stop="20240101130000 +0800">
+ *   <title>新闻联播</title>
+ * </programme>
  */
 class EPGXmlParser {
 
@@ -23,30 +32,47 @@ class EPGXmlParser {
     private val epg = mutableMapOf<String, MutableList<EPG>>()
     private val channelNames = mutableMapOf<String, String>()  // id -> display-name
     private val dateFormat = SimpleDateFormat("yyyyMMddHHmmss Z", Locale.getDefault())
-    private val now = getDateTimestamp()
-    private val sevenDaysAgo = now - 604800  // 7 天
+
+    /**
+     * 动态获取 7 天前的时间戳
+     * 避免硬编码导致长时间运行后时间范围不准确
+     */
+    private fun getSevenDaysAgo(): Long {
+        return getDateTimestamp() - 604800  // 7 天 = 7 * 24 * 60 * 60
+    }
 
     private fun formatFTime(s: String): Int {
         return dateFormat.parse(s)?.time?.div(1000)?.toInt() ?: 0
     }
 
     /**
-     * 与 v1.4.0.0 完全相同 - 直接尝试 GZIPInputStream
+     * 自动检测并解压 gzip 流
+     * 直接尝试 GZIPInputStream，失败则返回原始流
      */
     private fun decompressIfGzip(inputStream: InputStream): InputStream {
         return try {
             val gzipStream = GZIPInputStream(inputStream)
-            Log.i(TAG, "gzip 解码,成功")
+            Log.i(TAG, "EPG gzip 解码成功")
             gzipStream
         } catch (e: Exception) {
-            Log.i(TAG, "普通 XML 流")
+            Log.i(TAG, "EPG 普通 XML 流")
             inputStream
         }
     }
 
+    /**
+     * 解析 EPG XML 数据
+     * @param inputStream XML 或 gzip 压缩的 XML 流
+     * @return 频道名 -> 节目列表 的映射
+     */
     fun parse(inputStream: InputStream): Map<String, List<EPG>> {
         // 处理 gzip
         val decompressedStream = decompressIfGzip(inputStream)
+        
+        // 动态计算时间范围
+        val sevenDaysAgo = getSevenDaysAgo()
+        val now = getDateTimestamp()
+        Log.i(TAG, "EPG 时间范围: ${sevenDaysAgo} - $now (保留 7 天历史)")
 
         decompressedStream.use { input ->
             val parser: XmlPullParser = Xml.newPullParser()
@@ -77,7 +103,7 @@ class EPGXmlParser {
                     parser.nextTag()
                     val title = parser.nextText()
 
-                    // 保留最近 7 天的节目
+                    // 保留最近 7 天的节目（动态计算）
                     val stopTime = formatFTime(stop)
                     if (stopTime > sevenDaysAgo) {
                         val channelName = channelNames[channelId] ?: channelId
@@ -89,7 +115,7 @@ class EPGXmlParser {
             }
         }
 
-        Log.i(TAG, "EPG 加载: ${epg.size} 频道,7天历史")
+        Log.i(TAG, "EPG 加载完成: ${epg.size} 个频道，保留 7 天历史")
         return epg.toSortedMap { a, b -> b.compareTo(a) }
     }
 

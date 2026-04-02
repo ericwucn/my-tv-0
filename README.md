@@ -4,6 +4,15 @@
 
 [my-tv-0](https://github.com/lizongying/my-tv-0)
 
+## 功能特點
+
+* 支持 txt/m3u/json 多種視頻源格式
+* 支持 7 天 EPG 節目單
+* **支持回看功能**（需要視頻源提供回看支持）
+* 支持收藏頻道
+* 支持遠程配置
+* 支持代理設置
+
 ## 使用
 
 * 遙控器中鍵/觸屏單擊打開視頻列表
@@ -12,8 +21,27 @@
 * 遙控器返回鍵關閉視頻列表/配置
 * 在聚焦視頻標題的時候，右鍵收藏/取消收藏
 * 打開配置后，選擇遠程配置，掃描二維碼可以配置視頻源等。也可以直接遠程配置地址 http://0.0.0.0:34567
-* 如果視頻源地址已配置，並且打開了“應用啟動后更新視頻源”后，應用啟動后會自動更新視頻源
+* 如果視頻源地址已配置，並且打開了"應用啟動后更新視頻源"后，應用啟動后會自動更新視頻源
 * 默認遙控器下鍵/觸屏下滑切換到下一個視頻。換台反轉打開後，邏輯相反
+
+### 回看功能
+
+在節目單界面，過去的節目會顯示「回看」標識，點擊即可播放回放。
+
+回看需要視頻源支持，m3u 格式示例：
+
+```
+#EXTM3U catchup-source="?playseek=${(b)yyyyMMddHHmmss}-${(e)yyyyMMddHHmmss}"
+#EXTINF:-1 tvg-id="cctv1" tvg-name="CCTV1" group-title="央視",CCTV1
+http://example.com/live/cctv1.m3u8
+```
+
+支持的回看 URL 格式：
+- `${(b)format}` / `${(e)format}` - 開始/結束時間格式化
+- `{start}` / `{end}` - Unix 時間戳（秒）
+- `{timestamp}` - 開始時間戳
+- `{duration}` - 節目時長（秒）
+- `{utc}` / `{utcend}` - UTC 時間戳
 
 注意：
 
@@ -32,8 +60,8 @@
     ```
 * m3u
     ```
-    #EXTM3U x-tvg-url=""
-    #EXTINF:-1 tvg-id="" tvg-chno="" tvg-name="標準標題" tvg-logo="图标" group-title="組名",標題
+    #EXTM3U x-tvg-url="" catchup-source="?playseek=${(b)yyyyMMddHHmmss}-${(e)yyyyMMddHHmmss}"
+    #EXTINF:-1 tvg-id="" tvg-chno="" tvg-name="標準標題" tvg-logo="图标" group-title="組名" catchup-source="自定義回看模板",標題
     #EXTVLCOPT:http-user-agent=
     #EXTVLCOPT:http-referrer=
     視頻地址
@@ -52,7 +80,8 @@
         ],
         "headers": {
           "user-agent": ""
-        }
+        },
+        "catchupSource": "?playseek=${(b)yyyyMMddHHmmss}-${(e)yyyyMMddHHmmss}"
       }
     ]
     ```
@@ -61,7 +90,7 @@
 
 下載安裝 [releases](https://github.com/lizongying/my-tv-0/releases/)
 
-注意，“*-kitkat”為安卓4.4兼容版本
+注意，"*-kitkat"為安卓4.4兼容版本
 
 更多下載地址 [my-tv-0](https://lyrics.run/my-tv-0.html)
 
@@ -85,14 +114,17 @@ adb install my-tv-0.apk
 
 ## TODO
 
-* 支持回看
 * 淺色菜單
 
 ## 常見問題
 
 * 為什麼遠程配置視頻源文本後，再次打開應用後又恢復到原來的配置？
 
-  如果“應用啟動后更新視頻源”開啟後，且存在視頻源地址，則會自動更新，可能會覆蓋已保存的視頻源文本。
+  如果"應用啟動后更新視頻源"開啟後，且存在視頻源地址，則會自動更新，可能會覆蓋已保存的視頻源文本。
+
+* 為什麼回看功能不能用？
+
+  回看功能需要視頻源支持。請確認你的 m3u 文件中包含 `catchup-source` 屬性。如果仍然無法使用，可能是視頻源不支持該節目的回放。
 
 ## 讚賞
 
