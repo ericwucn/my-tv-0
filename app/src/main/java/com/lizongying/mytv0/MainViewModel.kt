@@ -133,8 +133,11 @@ class MainViewModel : ViewModel() {
 
         Log.i(TAG, "cacheChannels $cacheFile $cacheChannels")
 
+        Log.i(TAG, ">>> init: calling str2Channels()")
+
         try {
             str2Channels(cacheChannels)
+            Log.i(TAG, ">>> init: str2Channels() returned")
         } catch (e: Exception) {
             Log.e(TAG, "init", e)
             cacheFile!!.deleteOnExit()
