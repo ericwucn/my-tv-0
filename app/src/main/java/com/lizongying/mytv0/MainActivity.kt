@@ -32,7 +32,6 @@ import kotlin.math.abs
 class MainActivity : AppCompatActivity() {
 
     private var ok = 0
-    private var isViewReady = false  // 防止 onCreate 阶段 watch() 被过早调用导致播放器初始化卡死主线程
     private var playerFragment = PlayerFragment()
     private val errorFragment = ErrorFragment()
     private val loadingFragment = LoadingFragment()
@@ -125,7 +124,6 @@ class MainActivity : AppCompatActivity() {
         Log.i(TAG, "ready $tag")
         ok++
         if (ok == 2) {
-            isViewReady = true  // View 完全渲染后才允许播放器操作
             Log.i(TAG, "all ready")
 
             gestureDetector = GestureDetector(this, GestureListener(this))
@@ -202,10 +200,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun watch() {
-        // View 未完全渲染前禁止触发播放器操作，避免播放器初始化卡死主线程
-        if (!isViewReady) {
-            return
-        }
         viewModel.listModel.forEach { tvModel ->
             tvModel.errInfo.observe(this) { _ ->
                 if (tvModel.errInfo.value != null) {

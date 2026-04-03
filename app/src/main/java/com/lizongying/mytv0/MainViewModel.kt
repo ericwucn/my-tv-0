@@ -133,11 +133,8 @@ class MainViewModel : ViewModel() {
 
         Log.i(TAG, "cacheChannels $cacheFile $cacheChannels")
 
-        Log.i(TAG, ">>> init: calling str2Channels()")
-
         try {
             str2Channels(cacheChannels)
-            Log.i(TAG, ">>> init: str2Channels() returned")
         } catch (e: Exception) {
             Log.e(TAG, "init", e)
             cacheFile!!.deleteOnExit()
@@ -149,15 +146,11 @@ class MainViewModel : ViewModel() {
             if (!cacheEPG.exists()) {
                 cacheEPG.createNewFile()
             } else {
-                Log.i(TAG, "cacheEPG exists, parsing...")
-                // 纯 IO 解析，不触发 LiveData，避免在 Activity 启动阶段
-                // 与 SplashScreen postDraw 竞争主线程导致死锁
-                val epgMap = parseEPG(cacheEPG.readText())
-                if (epgMap.isNotEmpty()) {
-                    writeEpgCache(epgMap)
-                    Log.i(TAG, "cacheEPG parsed ${epgMap.size} channels")
+                Log.i(TAG, "cacheEPG exists")
+                if (readEPG(cacheEPG.readText())) {
+                    Log.i(TAG, "cacheEPG success")
                 } else {
-                    Log.i(TAG, "cacheEPG parse failure")
+                    Log.i(TAG, "cacheEPG failure")
                 }
             }
         }
@@ -209,18 +202,28 @@ class MainViewModel : ViewModel() {
         }
     }
 
-    /**
-     * 解析 EPG JSON 字符串，返回频道-节目映射表
-     * 不触发任何 LiveData/UI 操作，IO 线程完成
-     */
-    private suspend fun parseEPG(str: String): Map<String, List<EPG>> = withContext(Dispatchers.IO) {
+    private suspend fun readEPG(str: String): Boolean = withContext(Dispatchers.IO) {
         try {
             val res: Map<String, List<EPG>> = gson.fromJson(str, typeEPGMap)
-            Log.i(TAG, "parseEPG parsed ${res.size} channels from cache")
-            res
+
+            withContext(Dispatchers.Main) {
+                for (m in listModel) {
+                    val name = m.tv.name.ifEmpty { m.tv.title }.lowercase()
+                    if (name.isEmpty()) {
+                        continue
+                    }
+
+                    val epg = res[name]
+                    if (epg != null) {
+                        m.setEpg(epg)
+                    }
+                }
+            }
+            Log.i(TAG, "readEPG success")
+            true
         } catch (e: Exception) {
-            Log.e(TAG, "parseEPG", e)
-            emptyMap()
+            Log.e(TAG, "readEPG", e)
+            false
         }
     }
 
