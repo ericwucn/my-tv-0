@@ -104,6 +104,7 @@ class MainActivity : AppCompatActivity() {
 
         setContentView(R.layout.activity_main)
 
+        Log.i(TAG, "版本信息: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
         viewModel = ViewModelProvider(this)[MainViewModel::class.java]
         viewModel.init(this)
 
