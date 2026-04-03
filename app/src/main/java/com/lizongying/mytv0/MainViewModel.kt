@@ -146,11 +146,15 @@ class MainViewModel : ViewModel() {
             if (!cacheEPG.exists()) {
                 cacheEPG.createNewFile()
             } else {
-                Log.i(TAG, "cacheEPG exists")
-                if (readEPG(cacheEPG.readText())) {
-                    Log.i(TAG, "cacheEPG success")
+                Log.i(TAG, "cacheEPG exists, parsing...")
+                // 纯 IO 解析，不触发 LiveData，避免在 Activity 启动阶段
+                // 与 SplashScreen postDraw 竞争主线程导致死锁
+                val epgMap = parseEPG(cacheEPG.readText())
+                if (epgMap.isNotEmpty()) {
+                    writeEpgCache(epgMap)
+                    Log.i(TAG, "cacheEPG parsed ${epgMap.size} channels")
                 } else {
-                    Log.i(TAG, "cacheEPG failure")
+                    Log.i(TAG, "cacheEPG parse failure")
                 }
             }
         }
@@ -187,58 +191,62 @@ class MainViewModel : ViewModel() {
         }
     }
 
-    suspend fun readEPG(input: InputStream): Boolean = withContext(Dispatchers.IO) {
+    /**
+     * 解析 EPG InputStream，返回频道-节目映射表
+     * 不触发任何 LiveData/UI 操作，IO 线程完成
+     */
+    suspend fun parseEPG(input: InputStream): Map<String, List<EPG>> = withContext(Dispatchers.IO) {
         try {
             val res = EPGXmlParser().parse(input)
-
-            withContext(Dispatchers.Main) {
-                val e1 = mutableMapOf<String, List<EPG>>()
-                for (m in listModel) {
-                    val name = m.tv.name.ifEmpty { m.tv.title }.lowercase()
-                    if (name.isEmpty()) {
-                        continue
-                    }
-
-                    for ((n, epg) in res) {
-                        if (name.contains(n, ignoreCase = true)) {
-                            m.setEpg(epg)
-                            e1[name] = epg
-                            break
-                        }
-                    }
-                }
-                cacheEPG.writeText(gson.toJson(e1))
-            }
-            Log.i(TAG, "readEPG success")
-            true
+            Log.i(TAG, "parseEPG parsed ${res.size} channels")
+            res
         } catch (e: Exception) {
-            Log.e(TAG, "readEPG", e)
-            false
+            Log.e(TAG, "parseEPG", e)
+            emptyMap()
         }
     }
 
-    private suspend fun readEPG(str: String): Boolean = withContext(Dispatchers.IO) {
+    /**
+     * 解析 EPG JSON 字符串，返回频道-节目映射表
+     * 不触发任何 LiveData/UI 操作，IO 线程完成
+     */
+    private suspend fun parseEPG(str: String): Map<String, List<EPG>> = withContext(Dispatchers.IO) {
         try {
             val res: Map<String, List<EPG>> = gson.fromJson(str, typeEPGMap)
-
-            withContext(Dispatchers.Main) {
-                for (m in listModel) {
-                    val name = m.tv.name.ifEmpty { m.tv.title }.lowercase()
-                    if (name.isEmpty()) {
-                        continue
-                    }
-
-                    val epg = res[name]
-                    if (epg != null) {
-                        m.setEpg(epg)
-                    }
-                }
-            }
-            Log.i(TAG, "readEPG success")
-            true
+            Log.i(TAG, "parseEPG parsed ${res.size} channels from cache")
+            res
         } catch (e: Exception) {
-            Log.e(TAG, "readEPG", e)
-            false
+            Log.e(TAG, "parseEPG", e)
+            emptyMap()
+        }
+    }
+
+    /**
+     * 将解析后的 EPG 数据写入缓存文件
+     * 纯 IO 操作，不触发 LiveData/UI
+     */
+    private suspend fun writeEpgCache(epgMap: Map<String, List<EPG>>) = withContext(Dispatchers.IO) {
+        try {
+            cacheEPG.writeText(gson.toJson(epgMap))
+            Log.i(TAG, "writeEpgCache written")
+        } catch (e: Exception) {
+            Log.e(TAG, "writeEpgCache", e)
+        }
+    }
+
+    /**
+     * 将 EPG 数据应用到 ViewModel 的 LiveData
+     * 必须在 Dispatchers.Main 或 Dispatchers.IO 上下文中调用
+     * 不在 onCreate 阶段调用，避免与 SplashScreen 死锁
+     */
+    private fun applyEPG(epgMap: Map<String, List<EPG>>) {
+        for (m in listModel) {
+            val name = m.tv.name.ifEmpty { m.tv.title }.lowercase()
+            if (name.isEmpty()) continue
+            val epg = epgMap[name]
+            if (epg != null) {
+                m.setEpg(epg)
+            }
         }
     }
 
@@ -261,8 +269,12 @@ class MainViewModel : ViewModel() {
                         val response = HttpClient.okHttpClient.newCall(request).execute()
 
                         if (response.isSuccessful) {
-                            if (readEPG(response.bodyAlias()!!.byteStream())) {
-                                Log.i(TAG, "EPG $a success")
+                            // 纯 IO 解析，返回 Map
+                            val epgMap = parseEPG(response.bodyAlias()!!.byteStream())
+                            if (epgMap.isNotEmpty()) {
+                                applyEPG(epgMap)    // 在 IO 线程内写 LiveData，避免与 SplashScreen 死锁
+                                writeEpgCache(epgMap)
+                                Log.i(TAG, "EPG $a success, ${epgMap.size} channels")
                                 true
                             } else {
                                 false
