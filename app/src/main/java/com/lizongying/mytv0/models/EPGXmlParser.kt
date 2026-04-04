@@ -4,6 +4,7 @@ import android.util.Xml
 import com.lizongying.mytv0.Utils.getDateTimestamp
 import com.lizongying.mytv0.data.EPG
 import org.xmlpull.v1.XmlPullParser
+import java.io.BufferedInputStream
 import java.io.InputStream
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -23,10 +24,12 @@ class EPGXmlParser {
 
     private fun detectGzip(inputStream: InputStream): InputStream {
         return try {
-            inputStream.mark(2)
-            val header = inputStream.read()
-            inputStream.reset()
-            if (header == 0x1f) GZIPInputStream(inputStream) else inputStream
+            // 使用 BufferedInputStream 支持 mark/reset
+            val buffered = if (inputStream.markSupported()) inputStream else BufferedInputStream(inputStream)
+            buffered.mark(2)
+            val header = buffered.read()
+            buffered.reset()
+            if (header == 0x1f) GZIPInputStream(buffered) else buffered
         } catch (e: Exception) {
             inputStream
         }
