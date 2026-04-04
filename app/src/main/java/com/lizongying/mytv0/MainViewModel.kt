@@ -326,7 +326,6 @@ class MainViewModel : ViewModel() {
     }
 
     fun importFromUri(uri: Uri, id: String = "") {
-        Log.i(TAG, "importFromUri called: $uri, scheme: ${uri.scheme}")
         if (uri.scheme == "file") {
             val file = uri.toFile()
             Log.i(TAG, "file $file")
@@ -346,7 +345,6 @@ class MainViewModel : ViewModel() {
     }
 
     fun tryStr2Channels(str: String, file: File?, url: String, id: String = "") {
-        Log.i(TAG, "tryStr2Channels: str length=${str.length}, first 100 chars: ${str.take(100)}")
         try {
             if (str2Channels(str)) {
                 Log.i(TAG, "write to cacheFile $cacheFile $str")
@@ -435,10 +433,8 @@ class MainViewModel : ViewModel() {
                     }
                     if (trimmedLine.startsWith("#EXTM3U")) {
                         epgUrl = epgRegex.find(trimmedLine)?.groupValues?.get(1)?.trim()
-                        // 全局 catchup 参数
                         globalCatchup = catchupRegex.find(trimmedLine)?.groupValues?.get(1)?.trim()
                         globalCatchupSource = catchupSourceRegex.find(trimmedLine)?.groupValues?.get(1)?.trim()
-                        Log.i(TAG, "Global catchup: $globalCatchup, catchupSource: $globalCatchupSource")
                     } else if (trimmedLine.startsWith("#EXTINF")) {
                         val key = tv.group + tv.name
                         if (key.isNotEmpty()) {
@@ -454,7 +450,6 @@ class MainViewModel : ViewModel() {
                         tv.number =
                             numRegex.find(info.first())?.groupValues?.get(1)?.trim()?.toInt() ?: -1
                         tv.group = groupRegex.find(info.first())?.groupValues?.get(1)?.trim() ?: ""
-                        // 应用全局 catchup 参数
                         tv.catchup = catchupRegex.find(info.first())?.groupValues?.get(1)?.trim() ?: globalCatchup
                         tv.catchupSource = catchupSourceRegex.find(info.first())?.groupValues?.get(1)?.trim() ?: globalCatchupSource
                     } else if (trimmedLine.startsWith("#EXTVLCOPT:http-")) {

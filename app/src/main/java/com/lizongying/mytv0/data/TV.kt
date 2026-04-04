@@ -33,8 +33,6 @@ data class TV(
                 ", group='" + group + '\'' +
                 ", sourceType='" + sourceType + '\'' +
                 ", number=" + number +
-                ", catchup='" + catchup + '\'' +
-                ", catchupSource='" + catchupSource + '\'' +
                 '}'
     }
 }

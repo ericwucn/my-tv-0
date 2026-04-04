@@ -21,7 +21,7 @@ class ProgramFragment : Fragment(), ProgramAdapter.ItemListener {
     private val binding get() = _binding!!
 
     private val handler = Handler()
-    private val delay: Long = 15000  // 15秒自动消失
+    private val delay: Long = 15000
 
     private lateinit var programAdapter: ProgramAdapter
 
@@ -126,7 +126,6 @@ class ProgramFragment : Fragment(), ProgramAdapter.ItemListener {
         val catchupSource = tvModel.tv.catchupSource ?: return
         val originalUrl = tvModel.getVideoUrl() ?: return
 
-        // 生成回看 URL
         val timeFormat = SimpleDateFormat("yyyyMMddHHmmss", Locale.getDefault())
         val startTime = timeFormat.format(Date(epg.beginTime * 1000L))
         val endTime = timeFormat.format(Date(epg.endTime * 1000L))
@@ -139,7 +138,6 @@ class ProgramFragment : Fragment(), ProgramAdapter.ItemListener {
 
         Log.i(TAG, "Catchup URL: $fullUrl")
 
-        // 更新播放 URL 并重新播放
         tvModel.tv.uris = listOf(fullUrl)
         tvModel.setReady(retry = true)
 

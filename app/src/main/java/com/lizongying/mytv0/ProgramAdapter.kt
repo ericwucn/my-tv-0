@@ -42,6 +42,8 @@ class ProgramAdapter(
     override fun onBindViewHolder(viewHolder: ViewHolder, position: Int) {
         val epg = epgList[position]
         val view = viewHolder.itemView
+        val now = Utils.getDateTimestamp()
+        val isHistory = epg.endTime <= now
 
         view.onFocusChangeListener = View.OnFocusChangeListener { v, hasFocus ->
             listener?.onItemFocusChange(epg, hasFocus)
@@ -59,11 +61,9 @@ class ProgramAdapter(
                 if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
                     return@setOnKeyListener true
                 }
-                // 回看按钮: 按 OK 键触发回看
-                if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) {
-                    val now = Utils.getDateTimestamp()
-                    // 仅历史节目（结束时间 < 当前时间）可回看
-                    if (epg.endTime <= now && hasCatchup && !catchupSource.isNullOrEmpty()) {
+                // 历史节目按OK键触发回看
+                if (isHistory && hasCatchup && !catchupSource.isNullOrEmpty()) {
+                    if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) {
                         listener?.onCatchupClick(epg)
                         return@setOnKeyListener true
                     }
@@ -174,4 +174,3 @@ class ProgramAdapter(
         private const val TAG = "ProgramAdapter"
     }
 }
-
