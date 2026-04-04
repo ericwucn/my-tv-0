@@ -7,6 +7,7 @@ import org.xmlpull.v1.XmlPullParser
 import java.io.InputStream
 import java.text.SimpleDateFormat
 import java.util.Locale
+import java.util.zip.GZIPInputStream
 
 
 class EPGXmlParser {
@@ -14,14 +15,28 @@ class EPGXmlParser {
     private val ns: String? = null
     private val epg = mutableMapOf<String, MutableList<EPG>>()
     private val dateFormat = SimpleDateFormat("yyyyMMddHHmmss Z", Locale.getDefault())
-    private val now = getDateTimestamp()
+    private val now = getDateTimestamp() - 7 * 24 * 60 * 60  // 当前时间前7天
 
     private fun formatFTime(s: String): Int {
         return dateFormat.parse(s)?.time?.div(1000)?.toInt() ?: 0
     }
 
+    private fun detectGzip(inputStream: InputStream): InputStream {
+        return try {
+            inputStream.mark(2)
+            val header = inputStream.read()
+            inputStream.reset()
+            if (header == 0x1f) GZIPInputStream(inputStream) else inputStream
+        } catch (e: Exception) {
+            inputStream
+        }
+    }
+
     fun parse(inputStream: InputStream): Map<String, List<EPG>> {
-        inputStream.use { input ->
+        // 检测并解压 gzip 格式
+        val gzipInput = detectGzip(inputStream)
+
+        gzipInput.use { input ->
             val parser: XmlPullParser = Xml.newPullParser()
             parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false)
             parser.setInput(input, null)
