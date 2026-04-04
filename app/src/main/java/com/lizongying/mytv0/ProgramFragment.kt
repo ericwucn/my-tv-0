@@ -3,6 +3,7 @@ package com.lizongying.mytv0
 import android.os.Bundle
 import android.os.Handler
 import android.util.Log
+import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -11,13 +12,16 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.lizongying.mytv0.data.EPG
 import com.lizongying.mytv0.databinding.ProgramBinding
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class ProgramFragment : Fragment(), ProgramAdapter.ItemListener {
     private var _binding: ProgramBinding? = null
     private val binding get() = _binding!!
 
     private val handler = Handler()
-    private val delay: Long = 5000
+    private val delay: Long = 15000  // 15秒自动消失
 
     private lateinit var programAdapter: ProgramAdapter
 
@@ -58,11 +62,15 @@ class ProgramFragment : Fragment(), ProgramAdapter.ItemListener {
 
         viewModel.groupModel.getCurrent()?.let {
             val index = it.epgValue.indexOfFirst { it.endTime > Utils.getDateTimestamp() }
+            val hasCatchup = !it.tv.catchup.isNullOrEmpty()
+            val catchupSource = it.tv.catchupSource
             programAdapter = ProgramAdapter(
                 context,
                 binding.list,
                 it.epgValue,
                 index,
+                hasCatchup,
+                catchupSource,
             )
             binding.list.adapter = programAdapter
             binding.list.layoutManager = LinearLayoutManager(context)
@@ -106,7 +114,36 @@ class ProgramFragment : Fragment(), ProgramAdapter.ItemListener {
     }
 
     override fun onKey(keyCode: Int): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_BACK) {
+            hideSelf()
+            return true
+        }
         return false
+    }
+
+    override fun onCatchupClick(epg: EPG) {
+        val tvModel = viewModel.groupModel.getCurrent() ?: return
+        val catchupSource = tvModel.tv.catchupSource ?: return
+        val originalUrl = tvModel.getVideoUrl() ?: return
+
+        // 生成回看 URL
+        val timeFormat = SimpleDateFormat("yyyyMMddHHmmss", Locale.getDefault())
+        val startTime = timeFormat.format(Date(epg.beginTime * 1000L))
+        val endTime = timeFormat.format(Date(epg.endTime * 1000L))
+
+        val catchupUrl = catchupSource
+            .replace("\${(b)yyyyMMddHHmmss}", startTime)
+            .replace("\${(e)yyyyMMddHHmmss}", endTime)
+
+        val fullUrl = originalUrl + catchupUrl
+
+        Log.i(TAG, "Catchup URL: $fullUrl")
+
+        // 更新播放 URL 并重新播放
+        tvModel.tv.uris = listOf(fullUrl)
+        tvModel.setReady(retry = true)
+
+        hideSelf()
     }
 
     companion object {

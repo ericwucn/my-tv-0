@@ -16,6 +16,8 @@ data class TV(
     var sourceType: SourceType = SourceType.UNKNOWN,
     var number: Int = -1,
     var child: List<TV> = emptyList(),
+    var catchup: String? = null,
+    var catchupSource: String? = null,
 ) : Serializable {
 
     override fun toString(): String {
@@ -31,6 +33,8 @@ data class TV(
                 ", group='" + group + '\'' +
                 ", sourceType='" + sourceType + '\'' +
                 ", number=" + number +
+                ", catchup='" + catchup + '\'' +
+                ", catchupSource='" + catchupSource + '\'' +
                 '}'
     }
 }

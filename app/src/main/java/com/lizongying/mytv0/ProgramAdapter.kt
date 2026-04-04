@@ -17,6 +17,8 @@ class ProgramAdapter(
     private val recyclerView: RecyclerView,
     private var epgList: List<EPG>,
     private var index: Int,
+    private var hasCatchup: Boolean = false,
+    private var catchupSource: String? = null,
 ) :
     RecyclerView.Adapter<ProgramAdapter.ViewHolder>() {
 
@@ -56,6 +58,15 @@ class ProgramAdapter(
             if (event?.action == KeyEvent.ACTION_UP) {
                 if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
                     return@setOnKeyListener true
+                }
+                // 回看按钮: 按 OK 键触发回看
+                if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) {
+                    val now = Utils.getDateTimestamp()
+                    // 仅历史节目（结束时间 < 当前时间）可回看
+                    if (epg.endTime <= now && hasCatchup && !catchupSource.isNullOrEmpty()) {
+                        listener?.onCatchupClick(epg)
+                        return@setOnKeyListener true
+                    }
                 }
             }
             if (event?.action == KeyEvent.ACTION_DOWN) {
@@ -152,6 +163,7 @@ class ProgramAdapter(
     interface ItemListener {
         fun onItemFocusChange(epg: EPG, hasFocus: Boolean)
         fun onKey(keyCode: Int): Boolean
+        fun onCatchupClick(epg: EPG)
     }
 
     fun setItemListener(listener: ItemListener) {

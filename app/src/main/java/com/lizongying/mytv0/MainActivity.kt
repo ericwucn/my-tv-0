@@ -107,6 +107,12 @@ class MainActivity : AppCompatActivity() {
         viewModel = ViewModelProvider(this)[MainViewModel::class.java]
         viewModel.init(this)
 
+        // 处理 intent data URI（从文件管理器导入 M3U）
+        intent?.data?.let { uri ->
+            Log.i(TAG, "Importing from URI: $uri")
+            viewModel.importFromUri(uri)
+        }
+
         if (savedInstanceState == null) {
             supportFragmentManager.beginTransaction()
                 .add(R.id.main_browse_fragment, playerFragment)
