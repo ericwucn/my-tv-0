@@ -2,6 +2,7 @@ package com.lizongying.mytv0
 
 import MainViewModel
 import android.content.Context
+import android.content.Intent
 import android.content.res.Configuration
 import android.graphics.Color
 import android.media.AudioManager
@@ -106,6 +107,12 @@ class MainActivity : AppCompatActivity() {
 
         viewModel = ViewModelProvider(this)[MainViewModel::class.java]
         viewModel.init(this)
+
+        // 处理外部Intent传入的URI（如分享的m3u链接）
+        intent?.data?.let { uri ->
+            Log.i(TAG, "处理外部URI: $uri")
+            viewModel.importFromUri(uri)
+        }
 
         if (savedInstanceState == null) {
             supportFragmentManager.beginTransaction()
@@ -832,6 +839,21 @@ class MainActivity : AppCompatActivity() {
         isSafeToPerformFragmentTransactions = true
 
         showTimeFragment()
+
+        // 处理从后台恢复时的新Intent（如从其他应用分享的链接）
+        intent?.data?.let { uri ->
+            Log.i(TAG, "onResume处理外部URI: $uri")
+            viewModel.importFromUri(uri)
+        }
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        // 处理新的Intent（singleTask模式下从外部启动时）
+        intent?.data?.let { uri ->
+            Log.i(TAG, "onNewIntent处理外部URI: $uri")
+            viewModel.importFromUri(uri)
+        }
     }
 
     override fun onPause() {
