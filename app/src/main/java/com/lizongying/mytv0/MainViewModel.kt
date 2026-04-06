@@ -130,10 +130,9 @@ class MainViewModel : ViewModel() {
             viewModelScope.launch {
                 try {
                     importFromUrl(DEFAULT_CHANNELS_URL)
-                    Log.i(TAG, "从默认URL加载完成，开始加载EPG")
-                    // 加载默认频道后，设置配置URL并尝试加载 EPG
+                    Log.i(TAG, "从默认URL加载完成")
+                    // 加载默认频道后，设置配置URL（EPG URL会在 importFromUrl -> tryStr2Channels 中自动检测并加载）
                     SP.configUrl = DEFAULT_CHANNELS_URL
-                    updateEPG(DEFAULT_EPG_URL)
                 } catch (e: Exception) {
                     Log.w(TAG, "从默认URL加载失败: ${e.message}")
                     // 网络加载失败，使用本地默认
@@ -261,36 +260,41 @@ class MainViewModel : ViewModel() {
      * 【增强】智能 EPG 匹配：
      * 1. 精确匹配 tvg-name（如 CCTV1）
      * 2. 匹配去掉 "-" 后的名称（如 cctv1 匹配 CCTV-1）
-     * 3. 模糊匹配（EPG 名称包含频道名）
+     * 3. 模糊匹配（EPG 名称包含频道名，或频道名包含 EPG 名称）
      * 4. 匹配中文名称（如 东方卫视）
+     * 5. 纯中文频道名匹配（去掉所有英文后的中文名）
+     * 6. 提取频道名中的数字匹配（如 "CCTV-4" 提取 "4" 匹配 EPG 中的 "CCTV4"）
      */
     private fun applyEPG(epgMap: Map<String, List<EPG>>) {
+        // 创建小写 key 的映射用于查找
+        val epgMapLower = epgMap.mapKeys { it.key.lowercase() }
+        
         var matchedCount = 0
         var totalCount = 0
         
         for (m in listModel) {
             val name = m.tv.name.ifEmpty { m.tv.title }
             val nameLower = name.lowercase()
+            val titleLower = m.tv.title.lowercase()
             totalCount++
             
-            var epg = epgMap[nameLower]
+            var epg = epgMapLower[nameLower]
             
             // 策略2：尝试去掉 "-" 的名称
             if (epg == null) {
                 val nameWithoutDash = nameLower.replace("-", "")
-                epg = epgMap[nameWithoutDash]
+                epg = epgMapLower[nameWithoutDash]
                 if (epg != null) {
                     Log.d(TAG, "EPG 匹配(${m.tv.title}): '$nameLower' -> '$nameWithoutDash'")
                 }
             }
             
-            // 策略3：模糊匹配（EPG 名称包含频道名）
+            // 策略3：模糊匹配（EPG 名称包含频道名，或频道名包含 EPG 名称）
             if (epg == null) {
-                for ((epgName, epgList) in epgMap) {
-                    // 频道名在 EPG 名称中，或 EPG 名称在频道名中
-                    if (epgName.contains(nameLower) || nameLower.contains(epgName)) {
+                for ((epgNameLower, epgList) in epgMapLower) {
+                    if (epgNameLower.contains(nameLower) || nameLower.contains(epgNameLower)) {
                         epg = epgList
-                        Log.d(TAG, "EPG 模糊匹配(${m.tv.title}): '$nameLower' -> '$epgName'")
+                        Log.d(TAG, "EPG 模糊匹配(${m.tv.title}): '$nameLower' -> '$epgNameLower'")
                         break
                     }
                 }
@@ -298,10 +302,57 @@ class MainViewModel : ViewModel() {
             
             // 策略4：尝试 title（显示名称）
             if (epg == null) {
-                val titleLower = m.tv.title.lowercase()
-                epg = epgMap[titleLower]
+                epg = epgMapLower[titleLower]
                 if (epg != null) {
                     Log.d(TAG, "EPG 匹配(${m.tv.title}): 使用 title '$titleLower'")
+                }
+            }
+            
+            // 策略5：纯中文频道名匹配（去掉所有英文和特殊字符后的中文名）
+            if (epg == null) {
+                val pureChineseName = name.replace(Regex("[a-zA-Z0-9\\-]"), "")
+                if (pureChineseName.isNotEmpty()) {
+                    epg = epgMapLower[pureChineseName.lowercase()]
+                    if (epg != null) {
+                        Log.d(TAG, "EPG 匹配(${m.tv.title}): 使用纯中文名 '$pureChineseName'")
+                    }
+                }
+            }
+            
+            // 策略6：提取频道名中的编号匹配（如 "CCTV-4中文" 提取 "4" 匹配 EPG 中的 "CCTV4"）
+            if (epg == null) {
+                val numberMatch = Regex("\\d+").find(nameLower)
+                if (numberMatch != null) {
+                    val number = numberMatch.value
+                    // 尝试 "cctv$number" 格式
+                    val cctvNum = "cctv$number"
+                    epg = epgMapLower[cctvNum]
+                    if (epg == null) {
+                        // 尝试从 EPG 中找包含编号的名称
+                        for ((epgNameLower, epgList) in epgMapLower) {
+                            if (epgNameLower.contains("cctv") && epgNameLower.contains(number)) {
+                                epg = epgList
+                                Log.d(TAG, "EPG 编号匹配(${m.tv.title}): '$nameLower' -> '$epgNameLower'")
+                                break
+                            }
+                        }
+                    } else {
+                        Log.d(TAG, "EPG 编号匹配(${m.tv.title}): '$nameLower' -> '$cctvNum'")
+                    }
+                }
+            }
+            
+            // 策略7：反向模糊匹配 - 用 title 的中文部分匹配 EPG
+            if (epg == null) {
+                val titleChinese = m.tv.title.replace(Regex("[a-zA-Z0-9\\-]"), "")
+                if (titleChinese.isNotEmpty()) {
+                    for ((epgNameLower, epgList) in epgMapLower) {
+                        if (epgNameLower.contains(titleChinese.lowercase())) {
+                            epg = epgList
+                            Log.d(TAG, "EPG 反向匹配(${m.tv.title}): '$titleChinese' -> '$epgNameLower'")
+                            break
+                        }
+                    }
                 }
             }
             
@@ -449,6 +500,17 @@ class MainViewModel : ViewModel() {
 
     fun tryStr2Channels(str: String, file: File?, url: String, id: String = "") {
         try {
+            // 检查是否包含 m3u 的 EPG URL
+            val epgMatch = Regex("""x-tvg-url="([^"]+)"""").find(str)
+            val m3uEpgUrl = epgMatch?.groupValues?.get(1)
+            if (!m3uEpgUrl.isNullOrEmpty()) {
+                Log.i(TAG, "发现 m3u 内嵌 EPG URL: $m3uEpgUrl")
+                // 设置 EPG URL 并更新 EPG
+                viewModelScope.launch {
+                    updateEPG(m3uEpgUrl)
+                }
+            }
+            
             if (str2Channels(str)) {
                 Log.i(TAG, "write to cacheFile $cacheFile $str")
                 cacheFile!!.writeText(str)
@@ -626,7 +688,7 @@ class MainViewModel : ViewModel() {
                     l.add(t1)
                 }
                 list = l
-                Log.i(TAG, "m3u解析完成 ${list.size} 个频道")
+                Log.i(TAG, "m3u解析完成 ${list.size} 个频道，EPG URL: $epgUrl")
             }
 
             else -> {
