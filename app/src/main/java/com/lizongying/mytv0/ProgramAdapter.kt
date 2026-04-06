@@ -17,8 +17,8 @@ class ProgramAdapter(
     private val recyclerView: RecyclerView,
     private var epgList: List<EPG>,
     private var index: Int,
-    private var hasCatchup: Boolean = false,
-    private var catchupSource: String? = null,
+    // catchupSource ??,? ?playseek=${(b)yyyyMMddHHmmss}-${(e)yyyyMMddHHmmss}
+    private var catchupSource: String = "",
 ) :
     RecyclerView.Adapter<ProgramAdapter.ViewHolder>() {
 
@@ -43,7 +43,8 @@ class ProgramAdapter(
         val epg = epgList[position]
         val view = viewHolder.itemView
         val now = Utils.getDateTimestamp()
-        val isHistory = epg.endTime <= now
+        val isPast = epg.endTime < now
+        val hasCatchup = isPast && catchupSource.isNotEmpty()
 
         view.onFocusChangeListener = View.OnFocusChangeListener { v, hasFocus ->
             listener?.onItemFocusChange(epg, hasFocus)
@@ -56,59 +57,51 @@ class ProgramAdapter(
             }
         }
 
+        // ??/??:????????,??/???????
+        view.setOnClickListener {
+            if (hasCatchup) {
+                listener?.onCatchupClick(epg, catchupSource)
+            }
+        }
+
         view.setOnKeyListener { _, keyCode, event: KeyEvent? ->
             if (event?.action == KeyEvent.ACTION_UP) {
                 if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
                     return@setOnKeyListener true
                 }
-                // 历史节目按OK键触发回看
-                if (isHistory && hasCatchup && !catchupSource.isNullOrEmpty()) {
-                    if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) {
-                        listener?.onCatchupClick(epg)
+                // ???????
+                if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) {
+                    if (hasCatchup) {
+                        listener?.onCatchupClick(epg, catchupSource)
                         return@setOnKeyListener true
                     }
                 }
             }
             if (event?.action == KeyEvent.ACTION_DOWN) {
-                // If it is already the first item and you continue to move up...
                 if (keyCode == KeyEvent.KEYCODE_DPAD_UP && position == 0) {
                     val p = getItemCount() - 1
-
-                    (recyclerView.layoutManager as? LinearLayoutManager)?.scrollToPositionWithOffset(
-                        p,
-                        0
-                    )
-
+                    (recyclerView.layoutManager as? LinearLayoutManager)?.scrollToPositionWithOffset(p, 0)
                     recyclerView.postDelayed({
                         val v = recyclerView.findViewHolderForAdapterPosition(p)
                         v?.itemView?.isSelected = true
                         v?.itemView?.requestFocus()
                     }, 0)
                 }
-
-
-                // If it is the last item and you continue to move down...
                 if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN && position == getItemCount() - 1) {
                     val p = 0
-
-                    (recyclerView.layoutManager as? LinearLayoutManager)?.scrollToPositionWithOffset(
-                        p,
-                        0
-                    )
-
+                    (recyclerView.layoutManager as? LinearLayoutManager)?.scrollToPositionWithOffset(p, 0)
                     recyclerView.postDelayed({
                         val v = recyclerView.findViewHolderForAdapterPosition(p)
                         v?.itemView?.isSelected = true
                         v?.itemView?.requestFocus()
                     }, 0)
                 }
-
                 return@setOnKeyListener listener?.onKey(keyCode) == true
             }
             false
         }
 
-        viewHolder.bindTitle(epg)
+        viewHolder.bindTitle(epg, hasCatchup)
     }
 
     override fun getItemCount() = epgList.size
@@ -116,14 +109,13 @@ class ProgramAdapter(
     class ViewHolder(private val context: Context, private val binding: ProgramItemBinding) :
         RecyclerView.ViewHolder(binding.root) {
 
-        fun bindTitle(epg: EPG) {
+        fun bindTitle(epg: EPG, hasCatchup: Boolean) {
             binding.title.text = "${Utils.getDateFormat("HH:mm", epg.beginTime)}-${
-                Utils.getDateFormat(
-                    "HH:mm",
-                    epg.endTime
-                )
+                Utils.getDateFormat("HH:mm", epg.endTime)
             }"
             binding.description.text = epg.title
+            // ??/??????
+            binding.catchupBadge.visibility = if (hasCatchup) View.VISIBLE else View.GONE
         }
 
         fun focus(hasFocus: Boolean, isCurrent: Boolean) {
@@ -150,7 +142,6 @@ class ProgramAdapter(
         layoutManager?.let {
             recyclerView.postDelayed({
                 it.scrollToPositionWithOffset(position, 0)
-
                 val viewHolder = recyclerView.findViewHolderForAdapterPosition(position)
                 viewHolder?.itemView?.apply {
                     isSelected = true
@@ -163,7 +154,8 @@ class ProgramAdapter(
     interface ItemListener {
         fun onItemFocusChange(epg: EPG, hasFocus: Boolean)
         fun onKey(keyCode: Int): Boolean
-        fun onCatchupClick(epg: EPG)
+        // ????:epg ?????,catchupSource ???
+        fun onCatchupClick(epg: EPG, catchupSource: String) {}
     }
 
     fun setItemListener(listener: ItemListener) {

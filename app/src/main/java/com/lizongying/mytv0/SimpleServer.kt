@@ -23,6 +23,7 @@ import io.github.lizongying.Gua
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.nio.charset.StandardCharsets
 
@@ -99,6 +100,10 @@ class SimpleServer(private val context: Context, private val viewModel: MainView
         return newFixedLengthResponse(Response.Status.OK, "application/json", response)
     }
 
+    /**
+     * 从网络获取视频源列表
+     * 添加 15 秒超时控制，防止网络请求阻塞
+     */
     private suspend fun fetchSources(url: String): String {
         val urls = getUrls(url)
 
@@ -106,37 +111,53 @@ class SimpleServer(private val context: Context, private val viewModel: MainView
         var success = false
         for (u in urls) {
             Log.i(TAG, "request $u")
-            withContext(Dispatchers.IO) {
-                try {
-                    val request = okhttp3.Request.Builder().url(u).build()
-                    val response = HttpClient.okHttpClient.newCall(request).execute()
+            // 添加超时控制
+            val result = withTimeoutOrNull(15_000) {
+                withContext(Dispatchers.IO) {
+                    try {
+                        val request = okhttp3.Request.Builder().url(u).build()
+                        val response = HttpClient.okHttpClient.newCall(request).execute()
 
-                    if (response.isSuccessful) {
-                        sources = response.bodyAlias()?.string() ?: ""
-                        success = true
-                    } else {
-                        Log.e(TAG, "Request status ${response.codeAlias()}")
+                        if (response.isSuccessful) {
+                            response.bodyAlias()?.string() ?: ""
+                        } else {
+                            Log.e(TAG, "Request status ${response.codeAlias()}")
+                            ""
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "fetchSources error: ${e.message}")
+                        ""
                     }
-                } catch (e: Exception) {
-                    Log.e(TAG, "fetchSources", e)
                 }
             }
 
-            if (success) break
+            if (result != null && result.isNotEmpty()) {
+                sources = result
+                success = true
+                break
+            } else if (result == null) {
+                Log.w(TAG, "fetchSources timeout for $u")
+            }
         }
 
         return sources
     }
 
+    /**
+     * 处理视频源列表请求
+     * 使用 runBlocking 但有超时保护，避免长时间阻塞
+     */
     private fun handleSources(): Response {
-        val response = runBlocking(Dispatchers.IO) {
-            fetchSources("https://raw.githubusercontent.com/lizongying/my-tv-0/main/app/src/main/res/raw/sources.txt")
+        val response = runBlocking {
+            withTimeoutOrNull(20_000) {
+                fetchSources("https://raw.githubusercontent.com/lizongying/my-tv-0/main/app/src/main/res/raw/sources.txt")
+            } ?: ""
         }
 
         return newFixedLengthResponse(
             Response.Status.OK,
             "application/json",
-            Gua().decode(response)
+            Gua().decode(response.ifEmpty { "[]" })
         )
     }
 

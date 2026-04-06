@@ -15,6 +15,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -73,25 +74,27 @@ object Utils {
     init {
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val currentTimeMillis = getTimestampFromServer()
-                Log.i(TAG, "currentTimeMillis $currentTimeMillis")
+                // 添加 5 秒超时控制，防止时间同步阻塞启动
+                val currentTimeMillis = withTimeoutOrNull(5_000) {
+                    getTimestampFromServer()
+                } ?: 0L
+                
                 if (currentTimeMillis > 0) {
                     between = System.currentTimeMillis() - currentTimeMillis
+                    Log.i(TAG, "时间同步成功，偏移量: ${between}ms")
+                } else {
+                    Log.w(TAG, "时间同步失败或超时，使用本地时间")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "init", e)
             }
-
-//            try {
-//                withContext(Dispatchers.Main) {
-//                    _isp.value = getISP()
-//                }
-//            } catch (e: Exception) {
-//                e.printStackTrace()
-//            }
         }
     }
 
+    /**
+     * 从服务器获取时间戳
+     * 添加网络超时保护
+     */
     private suspend fun getTimestampFromServer(): Long {
         return withContext(Dispatchers.IO) {
             try {
@@ -100,12 +103,12 @@ object Utils {
                     .build()
 
                 HttpClient.okHttpClient.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) return@withContext 0
-                    response.bodyAlias()?.string()?.toLong() ?: 0
+                    if (!response.isSuccessful) return@withContext 0L
+                    response.bodyAlias()?.string()?.trim()?.toLongOrNull() ?: 0L
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "getTimestampFromServer", e)
-                0
+                Log.e(TAG, "getTimestampFromServer: ${e.message}")
+                0L
             }
         }
     }

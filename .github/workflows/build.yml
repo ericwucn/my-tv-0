@@ -51,33 +51,14 @@ jobs:
         run: |
           gh release delete "${{ github.ref_name }}" --yes || true
 
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create Release and Upload Asset
+        uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
-          draft: false
-          prerelease: false
+          files: ${{ steps.sign_app.outputs.signedReleaseFile }}
           body_path: history.md
-
-      - name: Set Asset Name
-        id: set_asset_name
-        run: |
-          VERSION_WITHOUT_V=$(echo '${{ github.ref_name }}' | sed 's/^v//')
-          echo "asset_name=my-tv-0_${VERSION_WITHOUT_V}.apk" >> $GITHUB_ENV
-
-      - name: Upload Release Asset
-        uses: actions/upload-release-asset@v1
+          generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ${{ steps.sign_app.outputs.signedReleaseFile }}
-          asset_name: ${{ env.asset_name }}
-          asset_content_type: application/vnd.android.package-archive
 
 #      - name: Gitee Create Release
 #        run: |

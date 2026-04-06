@@ -60,7 +60,6 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-//        requestWindowFeature(FEATURE_NO_TITLE)
         window.setFlags(
             WindowManager.LayoutParams.FLAG_FULLSCREEN,
             WindowManager.LayoutParams.FLAG_FULLSCREEN
@@ -105,6 +104,7 @@ class MainActivity : AppCompatActivity() {
 
         setContentView(R.layout.activity_main)
 
+        Log.i(TAG, "版本信息: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
         viewModel = ViewModelProvider(this)[MainViewModel::class.java]
         viewModel.init(this)
 
@@ -143,44 +143,26 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
-//            if (SP.defaultLike) {
-//                TVList.groupModel.setPosition(0)
-//                val tvModel = TVList.listModel.find { it.like.value as Boolean }
-//                TVList.setPosition(tvModel?.tv?.id ?: 0)
-//                "播放收藏频道".showToast()
-//            }
-
             viewModel.channelsOk.observe(this) { it ->
                 if (it) {
                     val prevGroup = viewModel.groupModel.positionValue
                     val tvModel = if (SP.channel > 0) {
                         val position = if (SP.channel < viewModel.listModel.size) {
-                            // R.string.play_default_channel.showToast()
                             SP.channel - 1
                         } else {
-                            // R.string.default_channel_out_of_range.showToast()
                             SP.channel = 0
                             0
                         }
-                        Log.i(TAG, "播放默認頻道")
+                        Log.i(TAG, "play default channel")
                         viewModel.groupModel.getPosition(position)
                     } else {
-//                if (SP.position < 0 || SP.position >= TVList.groupModel.getAllList()!!
-//                        .size()
-//                ) {
-//                    // R.string.last_channel_out_of_range.showToast()
-//                    0
-//                } else {
-//                    // R.string.play_last_channel.showToast()
-//                    SP.position
-//                }
-                        Log.i(TAG, "播放上次頻道")
+                        Log.i(TAG, "play last channel")
                         viewModel.groupModel.getCurrent()
                     }
                     viewModel.groupModel.setPositionPlaying()
                     viewModel.groupModel.getCurrentList()
                         ?.let {
-                            Log.i(TAG, "當前組 ${it.getName()}")
+                            Log.i(TAG, "current group ${it.getName()}")
                             it.setPositionPlaying()
                         }
                     tvModel?.setReady()
@@ -193,21 +175,13 @@ class MainActivity : AppCompatActivity() {
 
                     viewModel.groupModel.isInLikeMode =
                         SP.defaultLike && viewModel.groupModel.positionValue == 0
-                    if (viewModel.groupModel.isInLikeMode) {
-//                R.string.favorite_mode.showToast()
-                    } else {
-//                R.string.standard_mode.showToast()
-                    }
 
-                    // TODO group position
                     viewModel.updateEPG()
                 }
             }
 
             Utils.isp.observe(this) {
                 val id = when (it) {
-//                    ISP.CHINA_MOBILE -> R.raw.mobile
-//                    ISP.IPV6->R.raw.ipv6
                     else -> 0
                 }
 
@@ -235,10 +209,7 @@ class MainActivity : AppCompatActivity() {
     private fun watch() {
         viewModel.listModel.forEach { tvModel ->
             tvModel.errInfo.observe(this) { _ ->
-
-                if (tvModel.errInfo.value != null
-//                    && tvModel.tv.id == TVList.positionValue
-                ) {
+                if (tvModel.errInfo.value != null) {
                     hideFragment(loadingFragment)
                     if (tvModel.errInfo.value == "") {
                         Log.i(TAG, "${tvModel.tv.title} playing")
@@ -254,12 +225,8 @@ class MainActivity : AppCompatActivity() {
             }
 
             tvModel.ready.observe(this) { _ ->
-
-                // not first time && channel is not changed
-                if (tvModel.ready.value != null
-//                    && tvModel.tv.id == TVList.positionValue
-                ) {
-                    Log.i(TAG, "${tvModel.tv.title} 嘗試播放")
+                if (tvModel.ready.value != null) {
+                    Log.i(TAG, "${tvModel.tv.title} ready to play")
                     hideFragment(errorFragment)
                     showFragment(loadingFragment)
                     playerFragment.play(tvModel)
@@ -369,10 +336,8 @@ class MainActivity : AppCompatActivity() {
                 val deltaTime = currentTime - lastScrollTime
                 lastScrollTime = currentTime
 
-                decayFactor =
-                    0.01f.coerceAtLeast(decayFactor - 0.03f * deltaTime)
-                val delta =
-                    ((oldY - newY) * decayFactor * 0.2 / screenHeight).toFloat()
+                decayFactor = 0.01f.coerceAtLeast(decayFactor - 0.03f * deltaTime)
+                val delta = ((oldY - newY) * decayFactor * 0.2 / screenHeight).toFloat()
                 adjustBrightness(delta)
                 decayFactor = 1.0f
                 return super.onScroll(e1, e2, distanceX, distanceY)
@@ -383,10 +348,8 @@ class MainActivity : AppCompatActivity() {
                 val deltaTime = currentTime - lastScrollTime
                 lastScrollTime = currentTime
 
-                decayFactor =
-                    0.01f.coerceAtLeast(decayFactor - 0.03f * deltaTime)
-                val delta =
-                    ((oldY - newY) * maxVolume * decayFactor * 0.2 / screenHeight).toInt()
+                decayFactor = 0.01f.coerceAtLeast(decayFactor - 0.03f * deltaTime)
+                val delta = ((oldY - newY) * maxVolume * decayFactor * 0.2 / screenHeight).toInt()
                 adjustVolume(delta)
                 decayFactor = 1.0f
                 return super.onScroll(e1, e2, distanceX, distanceY)
@@ -397,33 +360,18 @@ class MainActivity : AppCompatActivity() {
 
         private fun adjustVolume(deltaVolume: Int) {
             val currentVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
-
-            var newVolume = currentVolume + deltaVolume
-
-            if (newVolume < 0) {
-                newVolume = 0
-            } else if (newVolume > maxVolume) {
-                newVolume = maxVolume
-            }
-
+            var newVolume = (currentVolume + deltaVolume).coerceIn(0, maxVolume)
             audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, newVolume, 0)
-
             playerFragment.setVolumeMax(maxVolume * 100)
-            playerFragment.setVolume(newVolume.toInt() * 100, true)
+            playerFragment.setVolume(newVolume * 100, true)
             playerFragment.showVolume(View.VISIBLE)
         }
 
         private fun adjustBrightness(deltaBrightness: Float) {
             var brightness = window.attributes.screenBrightness
-
-            brightness += deltaBrightness
-            brightness = 0.1f.coerceAtLeast(0.9f.coerceAtMost(brightness))
-
-            val attributes = window.attributes.apply {
-                screenBrightness = brightness
-            }
+            brightness = (brightness + deltaBrightness).coerceIn(0.1f, 0.9f)
+            val attributes = window.attributes.apply { screenBrightness = brightness }
             window.attributes = attributes
-
             playerFragment.setVolumeMax(100)
             playerFragment.setVolume((brightness * 100).toInt())
             playerFragment.showVolume(View.VISIBLE)
@@ -444,11 +392,9 @@ class MainActivity : AppCompatActivity() {
         return if (position > -1 && position < viewModel.groupModel.getAllList()!!.size()) {
             val prevGroup = viewModel.groupModel.positionValue
             val tvModel = viewModel.groupModel.getPosition(position)
-
             tvModel?.setReady()
             viewModel.groupModel.setPositionPlaying()
             viewModel.groupModel.getCurrentList()?.setPositionPlaying()
-
             val currentGroup = viewModel.groupModel.positionValue
             if (currentGroup != prevGroup) {
                 menuFragment.updateList(currentGroup)
@@ -460,20 +406,55 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * 播放回放 URL
+     * 从 ProgramFragment 点击节目单中的回放节目时调用
+     */
+    fun playCatchup(catchupUrl: String) {
+        Log.i(TAG, "playCatchup: $catchupUrl")
+        val tvModel = viewModel.groupModel.getCurrent() ?: return
+        
+        // 保存原始 URI 和回放状态
+        if (!tvModel.isInCatchupMode) {
+            tvModel.catchupOriginalUris = tvModel.tv.uris
+        }
+        tvModel.isInCatchupMode = true
+        
+        // 只使用回放 URL
+        tvModel.tv = tvModel.tv.copy(uris = listOf(catchupUrl))
+        tvModel.setReady()
+        
+        R.string.catchup_playing.showToast()
+    }
+
+    /**
+     * 退出回放模式，恢复直播流
+     */
+    fun exitCatchupMode() {
+        val tvModel = viewModel.groupModel.getCurrent() ?: return
+        if (!tvModel.isInCatchupMode) return
+        
+        tvModel.catchupOriginalUris?.let { originalUris ->
+            tvModel.tv = tvModel.tv.copy(uris = originalUris)
+            tvModel.isInCatchupMode = false
+            tvModel.catchupOriginalUris = null
+            tvModel.setReady()
+            Log.i(TAG, "exitCatchupMode: restored to live stream")
+        }
+    }
+
     fun prev() {
+        exitCatchupMode()
         val prevGroup = viewModel.groupModel.positionValue
         val tvModel =
-            if (SP.defaultLike && viewModel.groupModel.isInLikeMode && viewModel.groupModel.getFavoritesList() != null
-            ) {
+            if (SP.defaultLike && viewModel.groupModel.isInLikeMode && viewModel.groupModel.getFavoritesList() != null) {
                 viewModel.groupModel.getPrev(true)
             } else {
                 viewModel.groupModel.getPrev()
             }
-
         tvModel?.setReady()
         viewModel.groupModel.setPositionPlaying()
         viewModel.groupModel.getCurrentList()?.setPositionPlaying()
-
         val currentGroup = viewModel.groupModel.positionValue
         if (currentGroup != prevGroup) {
             menuFragment.updateList(currentGroup)
@@ -481,19 +462,17 @@ class MainActivity : AppCompatActivity() {
     }
 
     fun next() {
+        exitCatchupMode()
         val prevGroup = viewModel.groupModel.positionValue
         val tvModel =
-            if (SP.defaultLike && viewModel.groupModel.isInLikeMode && viewModel.groupModel.getFavoritesList() != null
-            ) {
+            if (SP.defaultLike && viewModel.groupModel.isInLikeMode && viewModel.groupModel.getFavoritesList() != null) {
                 viewModel.groupModel.getNext(true)
             } else {
                 viewModel.groupModel.getNext()
             }
-
         tvModel?.setReady()
         viewModel.groupModel.setPositionPlaying()
         viewModel.groupModel.getCurrentList()?.setPositionPlaying()
-
         val currentGroup = viewModel.groupModel.positionValue
         if (currentGroup != prevGroup) {
             menuFragment.updateList(currentGroup)
@@ -501,35 +480,22 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showFragment(fragment: Fragment) {
-        if (!isSafeToPerformFragmentTransactions) {
-            return
-        }
-
+        if (!isSafeToPerformFragmentTransactions) return
         if (!fragment.isAdded) {
             supportFragmentManager.beginTransaction()
                 .add(R.id.main_browse_fragment, fragment)
                 .commitAllowingStateLoss()
             return
         }
-
-        if (!fragment.isHidden) {
-            return
-        }
-
+        if (!fragment.isHidden) return
         supportFragmentManager.beginTransaction()
             .show(fragment)
             .commitAllowingStateLoss()
     }
 
     private fun hideFragment(fragment: Fragment) {
-        if (!isSafeToPerformFragmentTransactions) {
-            return
-        }
-
-        if (!fragment.isAdded || fragment.isHidden) {
-            return
-        }
-
+        if (!isSafeToPerformFragmentTransactions) return
+        if (!fragment.isAdded || fragment.isHidden) return
         supportFragmentManager.beginTransaction()
             .hide(fragment)
             .commitAllowingStateLoss()
@@ -551,10 +517,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     fun switchSoftDecode() {
-        if (!playerFragment.isAdded || playerFragment.isHidden) {
-            return
-        }
-
+        if (!playerFragment.isAdded || playerFragment.isHidden) return
         playerFragment.updatePlayer()
     }
 
@@ -577,267 +540,120 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showChannel(channel: Int) {
-        if (!menuFragment.isHidden) {
-            return
-        }
-
-        if (settingFragment.isVisible) {
-            return
-        }
-
-//        if (SP.channelNum) {
-//            channelFragment.show(channel)
-//        }
+        if (!menuFragment.isHidden) return
+        if (settingFragment.isVisible) return
         channelFragment.show(channel)
     }
 
-
     private fun channelUp() {
-        if (programFragment.isAdded && !programFragment.isHidden) {
-            return
-        }
-
+        if (programFragment.isAdded && !programFragment.isHidden) return
         if ((!menuFragment.isAdded || menuFragment.isHidden) && (!settingFragment.isAdded || settingFragment.isHidden)) {
-            if (SP.channelReversal) {
-                next()
-                return
-            }
+            if (SP.channelReversal) { next(); return }
             prev()
         }
     }
 
     private fun channelDown() {
-        if (programFragment.isAdded && !programFragment.isHidden) {
-            return
-        }
-
+        if (programFragment.isAdded && !programFragment.isHidden) return
         if ((!menuFragment.isAdded || menuFragment.isHidden) && (!settingFragment.isAdded || settingFragment.isHidden)) {
-            if (SP.channelReversal) {
-                prev()
-                return
-            }
+            if (SP.channelReversal) { prev(); return }
             next()
         }
     }
 
     private fun back() {
-        if (menuFragment.isAdded && !menuFragment.isHidden) {
-            hideFragment(menuFragment)
-            return
-        }
-
-        if (programFragment.isAdded && !programFragment.isHidden) {
-            hideFragment(programFragment)
-            return
-        }
-
-        if (settingFragment.isAdded && !settingFragment.isHidden) {
-            hideFragment(settingFragment)
-            showTimeFragment()
-            return
-        }
-
-        if (channelFragment.isAdded && channelFragment.isVisible) {
-            channelFragment.hideSelf()
-            return
-        }
-
-        if (doubleBackToExitPressedOnce) {
-            super.onBackPressed()
-            return
-        }
-
+        if (menuFragment.isAdded && !menuFragment.isHidden) { hideFragment(menuFragment); return }
+        if (programFragment.isAdded && !programFragment.isHidden) { hideFragment(programFragment); return }
+        if (settingFragment.isAdded && !settingFragment.isHidden) { hideFragment(settingFragment); showTimeFragment(); return }
+        if (channelFragment.isAdded && channelFragment.isVisible) { channelFragment.hideSelf(); return }
+        if (doubleBackToExitPressedOnce) { super.onBackPressed(); return }
         doubleBackToExitPressedOnce = true
         R.string.press_again_to_exit.showToast()
-
-        Handler(Looper.getMainLooper()).postDelayed({
-            doubleBackToExitPressedOnce = false
-        }, 2000)
+        Handler(Looper.getMainLooper()).postDelayed({ doubleBackToExitPressedOnce = false }, 2000)
     }
 
     private fun showSetting() {
-        if (programFragment.isAdded && !programFragment.isHidden) {
-            return
-        }
-
-        if (menuFragment.isAdded && !menuFragment.isHidden) {
-            return
-        }
-
+        if (programFragment.isAdded && !programFragment.isHidden) return
+        if (menuFragment.isAdded && !menuFragment.isHidden) return
         showFragment(settingFragment)
-
         settingActive()
     }
 
     private fun showProgram() {
-        if (menuFragment.isAdded && !menuFragment.isHidden) {
-            return
-        }
-
-        if (settingFragment.isAdded && !settingFragment.isHidden) {
-            return
-        }
-
+        if (menuFragment.isAdded && !menuFragment.isHidden) return
+        if (settingFragment.isAdded && !settingFragment.isHidden) return
         viewModel.groupModel.getCurrent()?.let {
             if (it.epgValue.isEmpty()) {
                 R.string.epg_is_empty.showToast()
                 return
             }
         }
-
         showFragment(programFragment)
     }
 
     private fun hideProgram(): Boolean {
-        if (!programFragment.isAdded || programFragment.isHidden) {
-            return false
-        }
-
+        if (!programFragment.isAdded || programFragment.isHidden) return false
         hideFragment(programFragment)
         return true
     }
 
     fun showWebViewPopup(url: String) {
         val binding = SettingsWebBinding.inflate(layoutInflater)
-
         val webView = binding.web
         webView.settings.javaScriptEnabled = true
         webView.isFocusableInTouchMode = true
         webView.isFocusable = true
         webView.loadUrl(url)
-
         val popupWindow = PopupWindow(
             binding.root,
             RelativeLayout.LayoutParams.MATCH_PARENT,
             RelativeLayout.LayoutParams.MATCH_PARENT
         )
-
         popupWindow.inputMethodMode = PopupWindow.INPUT_METHOD_NEEDED
         popupWindow.isFocusable = true
         popupWindow.isTouchable = true
-
         popupWindow.isClippingEnabled = false
-
         popupWindow.showAtLocation(window.decorView, Gravity.CENTER, 0, 0)
-
         webView.requestFocus()
-
-        binding.close.setOnClickListener {
-            popupWindow.dismiss()
-        }
+        binding.close.setOnClickListener { popupWindow.dismiss() }
     }
 
     fun onKey(keyCode: Int): Boolean {
         Log.d(TAG, "keyCode $keyCode")
         when (keyCode) {
-            KeyEvent.KEYCODE_0,
-            KeyEvent.KEYCODE_1,
-            KeyEvent.KEYCODE_2,
-            KeyEvent.KEYCODE_3,
-            KeyEvent.KEYCODE_4,
-            KeyEvent.KEYCODE_5,
-            KeyEvent.KEYCODE_6,
-            KeyEvent.KEYCODE_7,
-            KeyEvent.KEYCODE_8,
-            KeyEvent.KEYCODE_9,
-                -> {
-                showChannel(keyCode - 7)
-                return true
-            }
-
-            KeyEvent.KEYCODE_ESCAPE -> {
-                back()
-                return true
-            }
-
-            KeyEvent.KEYCODE_BACK -> {
-                back()
-                return true
-            }
-
-            KeyEvent.KEYCODE_BOOKMARK -> {
-                showSetting()
-                return true
-            }
-
-            KeyEvent.KEYCODE_UNKNOWN -> {
-                showSetting()
-                return true
-            }
-
-            KeyEvent.KEYCODE_HELP -> {
-                showSetting()
-                return true
-            }
-
-            KeyEvent.KEYCODE_SETTINGS -> {
-                showSetting()
-                return true
-            }
-
-            KeyEvent.KEYCODE_MENU -> {
-                showSetting()
-                return true
-            }
-
+            KeyEvent.KEYCODE_0, KeyEvent.KEYCODE_1, KeyEvent.KEYCODE_2,
+            KeyEvent.KEYCODE_3, KeyEvent.KEYCODE_4, KeyEvent.KEYCODE_5,
+            KeyEvent.KEYCODE_6, KeyEvent.KEYCODE_7, KeyEvent.KEYCODE_8,
+            KeyEvent.KEYCODE_9 -> { showChannel(keyCode - 7); return true }
+            KeyEvent.KEYCODE_ESCAPE -> { back(); return true }
+            KeyEvent.KEYCODE_BACK -> { back(); return true }
+            KeyEvent.KEYCODE_BOOKMARK, KeyEvent.KEYCODE_UNKNOWN,
+            KeyEvent.KEYCODE_HELP, KeyEvent.KEYCODE_SETTINGS,
+            KeyEvent.KEYCODE_MENU -> { showSetting(); return true }
             KeyEvent.KEYCODE_ENTER -> {
-                if (channelFragment.isAdded && channelFragment.isVisible) {
-                    channelFragment.playNow()
-                    return true
-                }
-
+                if (channelFragment.isAdded && channelFragment.isVisible) { channelFragment.playNow(); return true }
                 showFragment(menuFragment)
             }
-
             KeyEvent.KEYCODE_DPAD_CENTER -> {
-                if (channelFragment.isAdded && channelFragment.isVisible) {
-                    channelFragment.playNow()
-                    return true
-                }
-
+                if (channelFragment.isAdded && channelFragment.isVisible) { channelFragment.playNow(); return true }
                 showFragment(menuFragment)
             }
-
-            KeyEvent.KEYCODE_DPAD_UP -> {
-                channelUp()
-            }
-
-            KeyEvent.KEYCODE_CHANNEL_UP -> {
-                channelUp()
-            }
-
-            KeyEvent.KEYCODE_DPAD_DOWN -> {
-                channelDown()
-            }
-
-            KeyEvent.KEYCODE_CHANNEL_DOWN -> {
-                channelDown()
-            }
-
-            KeyEvent.KEYCODE_DPAD_LEFT -> {
-                showProgram()
-            }
-
-            KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                showSetting()
-            }
+            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_CHANNEL_UP -> channelUp()
+            KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_CHANNEL_DOWN -> channelDown()
+            KeyEvent.KEYCODE_DPAD_LEFT -> showProgram()
+            KeyEvent.KEYCODE_DPAD_RIGHT -> showSetting()
         }
         return false
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-        if (onKey(keyCode)) {
-            return true
-        }
-
+        if (onKey(keyCode)) return true
         return super.onKeyDown(keyCode, event)
     }
 
     override fun onResume() {
         super.onResume()
-
         isSafeToPerformFragmentTransactions = true
-
         showTimeFragment()
 
         // 处理从后台恢复时的新Intent（如从其他应用分享的链接）
@@ -858,7 +674,6 @@ class MainActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
-
         isSafeToPerformFragmentTransactions = false
     }
 

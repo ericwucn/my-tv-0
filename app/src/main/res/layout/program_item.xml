@@ -13,7 +13,6 @@
         android:layout_width="100dp"
         android:layout_height="50dp"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toStartOf="@id/description"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintBottom_toBottomOf="parent"
         android:textColor="@color/description_blur"
@@ -32,9 +31,29 @@
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintBottom_toBottomOf="parent"
         android:textColor="@color/description_blur"
-        tools:text="精彩節目"
+        tools:text="News"
         android:maxLines="1"
         android:ellipsize="end"
         android:textSize="16sp"
-        android:gravity="center_vertical" />
+        android:gravity="center_vertical"
+        android:paddingEnd="52dp" />
+
+    <androidx.appcompat.widget.AppCompatTextView
+        android:id="@+id/catchup_badge"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        android:layout_marginEnd="6dp"
+        android:text="@string/catchup"
+        android:textSize="11sp"
+        android:textColor="#FFFFFF"
+        android:background="#884CAF50"
+        android:paddingStart="6dp"
+        android:paddingEnd="6dp"
+        android:paddingTop="2dp"
+        android:paddingBottom="2dp"
+        android:visibility="gone" />
+
 </androidx.constraintlayout.widget.ConstraintLayout>
