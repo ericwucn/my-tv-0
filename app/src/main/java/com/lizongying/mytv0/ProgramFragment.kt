@@ -145,6 +145,11 @@ class ProgramFragment : Fragment(), ProgramAdapter.ItemListener {
     /**
      * 构建回看 URL
      * 支持多种 IPTV 源使用的占位符格式
+     * 
+     * 【关键修复】正确拼接 URL：
+     * - catchupSource 通常以 "?" 开头（如 "?playseek=..."）
+     * - baseUrl 可能已有查询参数（如 "?fmt=ts2hls&..."）
+     * - 若 baseUrl 已有 "?"，则用 "&" 连接；否则用 "?"
      */
     private fun buildCatchupUrl(baseUrl: String, catchupSource: String, beginTime: Int, endTime: Int): String {
         val beginDate = Date(beginTime.toLong() * 1000)
@@ -153,8 +158,13 @@ class ProgramFragment : Fragment(), ProgramAdapter.ItemListener {
 
         var result = catchupSource
 
+        Log.d(TAG, "buildCatchupUrl 开始: baseUrl=${baseUrl.take(100)}..., catchupSource=$catchupSource")
+        Log.d(TAG, "时间范围: beginTime=$beginTime, endTime=$endTime, duration=$duration 秒")
+        Log.d(TAG, "开始时间: ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(beginDate)}")
+        Log.d(TAG, "结束时间: ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(endDate)}")
+
         // 格式1: ${(b)format} 和 ${(e)format} - 带 $ 前缀的花括号格式
-        // 例如: ${\((b)yyyyMMddHHmmss)}
+        // 例如: ${(b)yyyyMMddHHmmss}-${(e)yyyyMMddHHmmss}
         result = Regex("""\$\{(\([be]\))([^}]+)\}""").replace(result) { match ->
             val type = match.groupValues[1]  // (b) 或 (e)
             val format = match.groupValues[2] // yyyyMMddHHmmss 等
@@ -203,9 +213,40 @@ class ProgramFragment : Fragment(), ProgramAdapter.ItemListener {
         result = result.replace("{startms}", (beginTime * 1000).toString())
         result = result.replace("{endms}", (endTime * 1000).toString())
 
-        Log.d(TAG, "回看 URL 构建: $catchupSource -> $result")
+        Log.d(TAG, "回看参数解析结果: $result")
 
-        return baseUrl + result
+        // 【关键修复】正确拼接 URL
+        // catchupSource 可能以 "?" 或 "&" 开头，需要正确处理
+        val finalUrl = when {
+            // baseUrl 已有查询参数，result 以 "?" 开头 -> 把 "?" 改成 "&"
+            baseUrl.contains("?") && result.startsWith("?") -> {
+                baseUrl + "&" + result.substring(1)
+            }
+            // baseUrl 已有查询参数，result 以 "&" 开头 -> 直接拼接
+            baseUrl.contains("?") && result.startsWith("&") -> {
+                baseUrl + result
+            }
+            // baseUrl 已有查询参数，result 不以 "?" 或 "&" 开头 -> 用 "&" 连接
+            baseUrl.contains("?") -> {
+                baseUrl + "&" + result
+            }
+            // baseUrl 无查询参数，result 以 "&" 开头 -> 把 "&" 改成 "?"
+            result.startsWith("&") -> {
+                baseUrl + "?" + result.substring(1)
+            }
+            // baseUrl 无查询参数，result 以 "?" 开头 -> 直接拼接
+            result.startsWith("?") -> {
+                baseUrl + result
+            }
+            // baseUrl 无查询参数，result 不以 "?" 或 "&" 开头 -> 用 "?" 连接
+            else -> {
+                baseUrl + "?" + result
+            }
+        }
+        
+        Log.i(TAG, "回看最终URL: $finalUrl")
+
+        return finalUrl
     }
 
     companion object {

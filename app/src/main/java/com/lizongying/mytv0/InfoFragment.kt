@@ -114,11 +114,17 @@ class InfoFragment : Fragment() {
             }
         }
 
-        val epg = tvModel.epg.value?.filter { it.beginTime < Utils.getDateTimestamp() }
+        val epg = tvModel.epg.value?.filter { it.beginTime < Utils.getDateTimestamp() && it.endTime > Utils.getDateTimestamp() }
         if (!epg.isNullOrEmpty()) {
-            binding.desc.text = epg.last().title
+            binding.desc.text = epg.first().title
         } else {
-            binding.desc.text = "精彩節目"
+            // 如果没有当前节目，显示下一个即将开始的节目
+            val nextEpg = tvModel.epg.value?.filter { it.beginTime > Utils.getDateTimestamp() }
+            if (!nextEpg.isNullOrEmpty()) {
+                binding.desc.text = "即将: ${nextEpg.first().title}"
+            } else {
+                binding.desc.text = "暂无节目信息"
+            }
         }
 
         handler.removeCallbacks(removeRunnable)

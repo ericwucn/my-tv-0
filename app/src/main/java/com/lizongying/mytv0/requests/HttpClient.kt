@@ -85,6 +85,10 @@ object HttpClient {
             .hostnameVerifier { _, _ -> true }
             .connectionSpecs(listOf(ConnectionSpec.COMPATIBLE_TLS, ConnectionSpec.CLEARTEXT))
             .dns(DnsCache())
+            // 【新增】增加超时时间，支持大文件下载
+            .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(180, java.util.concurrent.TimeUnit.SECONDS)
+            .writeTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
             .apply { enableTls12OnPreLollipop() }
     }
 

@@ -10,6 +10,9 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.lizongying.mytv0.data.EPG
 import com.lizongying.mytv0.databinding.ProgramItemBinding
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 
 class ProgramAdapter(
@@ -17,7 +20,7 @@ class ProgramAdapter(
     private val recyclerView: RecyclerView,
     private var epgList: List<EPG>,
     private var index: Int,
-    // catchupSource ??,? ?playseek=${(b)yyyyMMddHHmmss}-${(e)yyyyMMddHHmmss}
+    // catchupSource 模板，如 ?playseek=${(b)yyyyMMddHHmmss}-${(e)yyyyMMddHHmmss}
     private var catchupSource: String = "",
 ) :
     RecyclerView.Adapter<ProgramAdapter.ViewHolder>() {
@@ -31,6 +34,7 @@ class ProgramAdapter(
         val binding = ProgramItemBinding.inflate(inflater, parent, false)
 
         val textSize = application.px2PxFont(binding.title.textSize)
+        binding.date.textSize = textSize - 2
         binding.title.textSize = textSize
         binding.description.textSize = textSize
 
@@ -57,7 +61,7 @@ class ProgramAdapter(
             }
         }
 
-        // ??/??:????????,??/???????
+        // 点击/确定：仅支持回看（过去的节目）
         view.setOnClickListener {
             if (hasCatchup) {
                 listener?.onCatchupClick(epg, catchupSource)
@@ -69,7 +73,7 @@ class ProgramAdapter(
                 if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
                     return@setOnKeyListener true
                 }
-                // ???????
+                // 确认键触发回看
                 if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) {
                     if (hasCatchup) {
                         listener?.onCatchupClick(epg, catchupSource)
@@ -110,26 +114,47 @@ class ProgramAdapter(
         RecyclerView.ViewHolder(binding.root) {
 
         fun bindTitle(epg: EPG, hasCatchup: Boolean) {
+            // 显示日期和周几
+            val dateFormat = SimpleDateFormat("MM/dd", Locale.getDefault())
+            val weekdayFormat = SimpleDateFormat("E", Locale.CHINESE)
+            val dateStr = dateFormat.format(Date(epg.beginTime.toLong() * 1000))
+            val weekdayStr = weekdayFormat.format(Date(epg.beginTime.toLong() * 1000))
+            // 将英文周几转为中文
+            val weekdayCn = when (weekdayStr) {
+                "Mon" -> "周一"
+                "Tue" -> "周二"
+                "Wed" -> "周三"
+                "Thu" -> "周四"
+                "Fri" -> "周五"
+                "Sat" -> "周六"
+                "Sun" -> "周日"
+                else -> weekdayStr
+            }
+            binding.date.text = "$dateStr $weekdayCn"
+            
             binding.title.text = "${Utils.getDateFormat("HH:mm", epg.beginTime)}-${
                 Utils.getDateFormat("HH:mm", epg.endTime)
             }"
             binding.description.text = epg.title
-            // ??/??????
+            // 显示/隐藏回看标识
             binding.catchupBadge.visibility = if (hasCatchup) View.VISIBLE else View.GONE
         }
 
         fun focus(hasFocus: Boolean, isCurrent: Boolean) {
             if (hasFocus) {
                 val color = ContextCompat.getColor(context, R.color.focus)
+                binding.date.setTextColor(color)
                 binding.title.setTextColor(color)
                 binding.description.setTextColor(color)
             } else {
                 if (isCurrent) {
                     val color = ContextCompat.getColor(context, R.color.white)
+                    binding.date.setTextColor(color)
                     binding.title.setTextColor(color)
                     binding.description.setTextColor(color)
                 } else {
                     val color = ContextCompat.getColor(context, R.color.description_blur)
+                    binding.date.setTextColor(color)
                     binding.title.setTextColor(color)
                     binding.description.setTextColor(color)
                 }
@@ -154,7 +179,7 @@ class ProgramAdapter(
     interface ItemListener {
         fun onItemFocusChange(epg: EPG, hasFocus: Boolean)
         fun onKey(keyCode: Int): Boolean
-        // ????:epg ?????,catchupSource ???
+        // 回看回调：epg 节目信息，catchupSource 模板
         fun onCatchupClick(epg: EPG, catchupSource: String) {}
     }
 

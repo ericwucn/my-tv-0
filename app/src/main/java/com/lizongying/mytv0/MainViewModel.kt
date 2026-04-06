@@ -125,20 +125,33 @@ class MainViewModel : ViewModel() {
         }
 
         if (cacheChannels.isEmpty()) {
-            Log.i(TAG, "cacheChannels isEmpty")
-            cacheChannels =
-                context.resources.openRawResource(DEFAULT_CHANNELS_FILE).bufferedReader()
-                    .use { it.readText() }
-        }
+            Log.i(TAG, "cacheChannels isEmpty, 尝试从默认URL加载")
+            // 【新增】先尝试从网络加载默认视频源
+            viewModelScope.launch {
+                try {
+                    importFromUrl(DEFAULT_CHANNELS_URL)
+                    Log.i(TAG, "从默认URL加载完成，开始加载EPG")
+                    // 加载默认频道后，设置配置URL并尝试加载 EPG
+                    SP.configUrl = DEFAULT_CHANNELS_URL
+                    updateEPG(DEFAULT_EPG_URL)
+                } catch (e: Exception) {
+                    Log.w(TAG, "从默认URL加载失败: ${e.message}")
+                    // 网络加载失败，使用本地默认
+                    val localChannels = context.resources.openRawResource(DEFAULT_CHANNELS_FILE).bufferedReader()
+                        .use { it.readText() }
+                    tryStr2Channels(localChannels, null, "", "")
+                }
+            }
+        } else {
+            Log.i(TAG, "cacheChannels $cacheFile ${cacheChannels.take(100)}...")
 
-        Log.i(TAG, "cacheChannels $cacheFile $cacheChannels")
-
-        try {
-            str2Channels(cacheChannels)
-        } catch (e: Exception) {
-            Log.e(TAG, "init", e)
-            cacheFile!!.deleteOnExit()
-            R.string.channel_read_error.showToast()
+            try {
+                str2Channels(cacheChannels)
+            } catch (e: Exception) {
+                Log.e(TAG, "init", e)
+                cacheFile!!.deleteOnExit()
+                R.string.channel_read_error.showToast()
+            }
         }
 
         viewModelScope.launch {
@@ -244,22 +257,69 @@ class MainViewModel : ViewModel() {
      * 将 EPG 数据应用到 ViewModel 的 LiveData
      * 必须在 Dispatchers.Main 或 Dispatchers.IO 上下文中调用
      * 不在 onCreate 阶段调用，避免与 SplashScreen 死锁
+     * 
+     * 【增强】智能 EPG 匹配：
+     * 1. 精确匹配 tvg-name（如 CCTV1）
+     * 2. 匹配去掉 "-" 后的名称（如 cctv1 匹配 CCTV-1）
+     * 3. 模糊匹配（EPG 名称包含频道名）
+     * 4. 匹配中文名称（如 东方卫视）
      */
     private fun applyEPG(epgMap: Map<String, List<EPG>>) {
+        var matchedCount = 0
+        var totalCount = 0
+        
         for (m in listModel) {
-            val name = m.tv.name.ifEmpty { m.tv.title }.lowercase()
-            if (name.isEmpty()) continue
-            val epg = epgMap[name]
+            val name = m.tv.name.ifEmpty { m.tv.title }
+            val nameLower = name.lowercase()
+            totalCount++
+            
+            var epg = epgMap[nameLower]
+            
+            // 策略2：尝试去掉 "-" 的名称
+            if (epg == null) {
+                val nameWithoutDash = nameLower.replace("-", "")
+                epg = epgMap[nameWithoutDash]
+                if (epg != null) {
+                    Log.d(TAG, "EPG 匹配(${m.tv.title}): '$nameLower' -> '$nameWithoutDash'")
+                }
+            }
+            
+            // 策略3：模糊匹配（EPG 名称包含频道名）
+            if (epg == null) {
+                for ((epgName, epgList) in epgMap) {
+                    // 频道名在 EPG 名称中，或 EPG 名称在频道名中
+                    if (epgName.contains(nameLower) || nameLower.contains(epgName)) {
+                        epg = epgList
+                        Log.d(TAG, "EPG 模糊匹配(${m.tv.title}): '$nameLower' -> '$epgName'")
+                        break
+                    }
+                }
+            }
+            
+            // 策略4：尝试 title（显示名称）
+            if (epg == null) {
+                val titleLower = m.tv.title.lowercase()
+                epg = epgMap[titleLower]
+                if (epg != null) {
+                    Log.d(TAG, "EPG 匹配(${m.tv.title}): 使用 title '$titleLower'")
+                }
+            }
+            
             if (epg != null) {
                 m.setEpg(epg)
+                matchedCount++
+            } else if (name.isNotEmpty()) {
+                Log.w(TAG, "EPG 未匹配: ${m.tv.title} (tvg-name=$name)")
             }
         }
+        
+        Log.i(TAG, "EPG 匹配结果: $matchedCount / $totalCount 个频道")
     }
 
     /**
      * 更新 EPG 数据
      * 支持多个 EPG 源地址（逗号分隔）
-     * 添加 30 秒超时控制，防止网络阻塞
+     * 【修改】增加超时时间到 120 秒（gzip EPG 文件较大）
      */
     private suspend fun updateEPG(url: String): Boolean {
         val urls = url.split(",").flatMap { u -> getUrls(u) }
@@ -267,8 +327,8 @@ class MainViewModel : ViewModel() {
         var success = false
         for (a in urls) {
             Log.i(TAG, "request $a")
-            // 添加超时控制，防止网络请求阻塞启动
-            val result = withTimeoutOrNull(30_000) {
+            // 【修改】增加超时时间到 120 秒（gzip EPG 文件较大）
+            val result = withTimeoutOrNull(120_000) {
                 withContext(Dispatchers.IO) {
                     try {
                         val request = okhttp3.Request.Builder().url(a).build()
@@ -278,9 +338,12 @@ class MainViewModel : ViewModel() {
                             // 纯 IO 解析，返回 Map
                             val epgMap = parseEPG(response.bodyAlias()!!.byteStream())
                             if (epgMap.isNotEmpty()) {
-                                applyEPG(epgMap)    // 在 IO 线程内写 LiveData，避免与 SplashScreen 死锁
                                 writeEpgCache(epgMap)
                                 Log.i(TAG, "EPG $a success, ${epgMap.size} channels")
+                                // 【修复】在主线程更新 LiveData
+                                withContext(Dispatchers.Main) {
+                                    applyEPG(epgMap)
+                                }
                                 true
                             } else {
                                 false
@@ -300,7 +363,7 @@ class MainViewModel : ViewModel() {
                 success = true
                 break
             } else if (result == null) {
-                Log.w(TAG, "EPG $a timeout after 30s")
+                Log.w(TAG, "EPG $a timeout after 120s")
             }
         }
 
@@ -670,5 +733,11 @@ class MainViewModel : ViewModel() {
         const val CACHE_FILE_NAME = "channels.txt"
         const val CACHE_EPG = "epg.xml"
         val DEFAULT_CHANNELS_FILE = R.raw.channels
+        
+        // 【新增】默认视频源 URL（当本地缓存为空时尝试加载）
+        const val DEFAULT_CHANNELS_URL = "https://kwrt100.diskstation.dynv6.net:5666/3.m3u"
+        
+        // 【新增】默认 EPG URL（用于默认视频源的节目指南）
+        const val DEFAULT_EPG_URL = "http://e.erw.cc/all.xml.gz"
     }
 }
