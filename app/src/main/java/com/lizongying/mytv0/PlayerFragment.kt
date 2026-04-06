@@ -10,6 +10,7 @@ import android.view.ViewGroup
 import androidx.annotation.OptIn
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
+import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -195,6 +196,25 @@ class PlayerFragment : Fragment() {
         }
     }
 
+    /**
+     * 播放回看 URL
+     */
+    @OptIn(UnstableApi::class)
+    fun playCatchup(tvModel: TVModel, catchupUrl: String) {
+        this.tvModel = tvModel
+        Log.i(TAG, "播放回看 URL: $catchupUrl")
+        
+        player?.run {
+            // 先停止当前播放，避免状态冲突
+            stop()
+            
+            val mediaItem = MediaItem.fromUri(catchupUrl)
+            setMediaItem(mediaItem)
+            prepare()
+            playWhenReady = true
+        }
+    }
+
     @OptIn(UnstableApi::class)
     class PlayerMediaCodecSelector : MediaCodecSelector {
         override fun getDecoderInfos(
@@ -259,6 +279,11 @@ class PlayerFragment : Fragment() {
         binding.icon.visibility = View.GONE
         binding.volume.visibility = View.GONE
     }
+
+    /**
+     * 获取 ExoPlayer 实例，供 PlaybackControlFragment 使用
+     */
+    fun getPlayer(): ExoPlayer? = player
 
     override fun onResume() {
         super.onResume()

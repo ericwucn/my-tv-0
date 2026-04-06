@@ -26,6 +26,8 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.ViewModelProvider
 import com.lizongying.mytv0.databinding.SettingsWebBinding
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 import kotlin.math.abs
 
@@ -42,10 +44,12 @@ class MainActivity : AppCompatActivity() {
     private var menuFragment = MenuFragment()
     private var settingFragment = SettingFragment()
     private var programFragment = ProgramFragment()
+    private var playbackControlFragment = PlaybackControlFragment()
 
     private val handler = Handler(Looper.myLooper()!!)
     private val delayHideMenu = 10 * 1000L
     private val delayHideSetting = 3 * 60 * 1000L
+    private val delayHidePlaybackControl = 10 * 1000L
 
     private var doubleBackToExitPressedOnce = false
 
@@ -562,6 +566,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun back() {
+        // 播放控制界面显示中
+        if (playbackControlFragment.isAdded && !playbackControlFragment.isHidden) {
+            // 回放模式下需要确认退出
+            if (playbackControlFragment.isCatchup()) {
+                showCatchupExitConfirm()
+            } else {
+                hidePlaybackControl()
+            }
+            return
+        }
         if (menuFragment.isAdded && !menuFragment.isHidden) { hideFragment(menuFragment); return }
         if (programFragment.isAdded && !programFragment.isHidden) { hideFragment(programFragment); return }
         if (settingFragment.isAdded && !settingFragment.isHidden) { hideFragment(settingFragment); showTimeFragment(); return }
@@ -570,6 +584,86 @@ class MainActivity : AppCompatActivity() {
         doubleBackToExitPressedOnce = true
         R.string.press_again_to_exit.showToast()
         Handler(Looper.getMainLooper()).postDelayed({ doubleBackToExitPressedOnce = false }, 2000)
+    }
+
+    /**
+     * 显示退出回放确认对话框
+     */
+    private fun showCatchupExitConfirm() {
+        val builder = androidx.appcompat.app.AlertDialog.Builder(this)
+        builder.setTitle(R.string.exit_catchup)
+        builder.setMessage(R.string.confirm_exit_catchup)
+        builder.setPositiveButton(R.string.confirm) { _, _ ->
+            exitCatchupMode()
+            hidePlaybackControl()
+        }
+        builder.setNegativeButton(R.string.cancel) { dialog, _ ->
+            dialog.dismiss()
+        }
+        builder.show()
+    }
+
+    /**
+     * 从直播模式切换到回放模式
+     * @param seekTime 回看开始时间（Unix 时间戳，秒）
+     */
+    fun startCatchupFromLive(seekTime: Long) {
+        val tvModel = viewModel.groupModel.getCurrent() ?: return
+        val catchupSource = tvModel.tv.catchupSource
+        
+        if (catchupSource.isEmpty()) {
+            Log.w(TAG, "该频道不支持回看")
+            R.string.catchup.showToast()
+            return
+        }
+        
+        Log.i(TAG, "从直播切换到回放: seekTime=$seekTime, catchupSource=$catchupSource")
+        
+        // 标记进入回放模式
+        tvModel.isInCatchupMode = true
+        
+        // 构建回看 URL
+        val baseUrl = tvModel.tv.uris.firstOrNull() ?: ""
+        val catchupUrl = buildCatchupUrl(baseUrl, catchupSource, seekTime)
+        Log.i(TAG, "回放URL: $catchupUrl")
+        
+        // 更新播放器
+        playerFragment.playCatchup(tvModel, catchupUrl)
+        
+        // 更新播放控制界面
+        playbackControlFragment.setTVModel(tvModel)
+    }
+
+    private fun buildCatchupUrl(baseUrl: String, catchupSource: String, beginTime: Long): String {
+        // 使用 ProgramFragment 中的 buildCatchupUrl 逻辑
+        // 简化版本：替换时间占位符
+        var result = catchupSource
+        val beginDate = Date(beginTime * 1000)
+        val endTime = Date()
+        
+        // 格式化时间
+        result = Regex("""\$\{(\([be]\))([^}]+)\}""").replace(result) { match ->
+            val type = match.groupValues[1]
+            val format = match.groupValues[2]
+            val date = if (type == "(b)") beginDate else endTime
+            try {
+                SimpleDateFormat(format, Locale.getDefault()).format(date)
+            } catch (e: Exception) {
+                match.value
+            }
+        }
+        
+        // 替换 {start} 和 {end}
+        result = result.replace("{start}", beginTime.toString())
+        result = result.replace("{end}", (System.currentTimeMillis() / 1000).toString())
+        
+        // 拼接 URL
+        return when {
+            baseUrl.contains("?") && result.startsWith("?") -> baseUrl + "&" + result.substring(1)
+            baseUrl.contains("?") -> baseUrl + "&" + result
+            result.startsWith("?") -> baseUrl + result
+            else -> baseUrl + "?" + result
+        }
     }
 
     private fun showSetting() {
@@ -640,10 +734,63 @@ class MainActivity : AppCompatActivity() {
             }
             KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_CHANNEL_UP -> channelUp()
             KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_CHANNEL_DOWN -> channelDown()
-            KeyEvent.KEYCODE_DPAD_LEFT -> showProgram()
-            KeyEvent.KEYCODE_DPAD_RIGHT -> showSetting()
+            KeyEvent.KEYCODE_DPAD_LEFT -> {
+                // 如果播放控制界面显示中，传递给播放控制
+                if (playbackControlFragment.isAdded && !playbackControlFragment.isHidden) {
+                    playbackControlFragment.handleKey(keyCode)
+                    return true
+                }
+                showProgram()
+            }
+            KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                // 如果播放控制界面显示中，传递给播放控制
+                if (playbackControlFragment.isAdded && !playbackControlFragment.isHidden) {
+                    playbackControlFragment.handleKey(keyCode)
+                    return true
+                }
+                showPlaybackControl()
+            }
         }
         return false
+    }
+
+    /**
+     * 显示播放控制界面
+     */
+    private fun showPlaybackControl() {
+        if (menuFragment.isAdded && !menuFragment.isHidden) return
+        if (settingFragment.isAdded && !settingFragment.isHidden) return
+        if (programFragment.isAdded && !programFragment.isHidden) return
+        
+        val tvModel = viewModel.groupModel.getCurrent() ?: return
+        
+        playbackControlFragment.setPlayerFragment(playerFragment)
+        playbackControlFragment.setTVModel(tvModel)
+        
+        showFragment(playbackControlFragment)
+        playbackControlActive()
+    }
+
+    /**
+     * 隐藏播放控制界面
+     */
+    private fun hidePlaybackControl() {
+        hideFragment(playbackControlFragment)
+    }
+
+    fun playbackControlActive() {
+        handler.removeCallbacks(hidePlaybackControl)
+        handler.postDelayed(hidePlaybackControl, delayHidePlaybackControl)
+    }
+
+    private val hidePlaybackControl = Runnable {
+        if (!isFinishing && !supportFragmentManager.isStateSaved) {
+            if (!playbackControlFragment.isHidden) {
+                supportFragmentManager.beginTransaction()
+                    .hide(playbackControlFragment)
+                    .commitAllowingStateLoss()
+            }
+        }
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {

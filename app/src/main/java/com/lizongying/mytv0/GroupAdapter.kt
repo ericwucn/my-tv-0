@@ -169,8 +169,8 @@ class GroupAdapter(
         RecyclerView.ViewHolder(binding.root) {
         fun bindTitle(text: String) {
             binding.title.text = when (text) {
-                "我的收藏" -> context.getString(R.string.my_favorites)
-                "全部頻道" -> context.getString(R.string.all_channels)
+                "我的收藏", "收藏" -> context.getString(R.string.my_favorites)
+                "全部頻道", "全部频道" -> context.getString(R.string.all_channels)
                 else -> text
             }
         }
