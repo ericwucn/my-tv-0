@@ -796,10 +796,10 @@ class MainViewModel : ViewModel() {
         const val CACHE_EPG = "epg.xml"
         val DEFAULT_CHANNELS_FILE = R.raw.channels
         
-        // 【新增】默认视频源 URL（当本地缓存为空时尝试加载）
+        // 【第10个自选源】kwrt100 NAS 视频源（当本地缓存为空时尝试加载）
         const val DEFAULT_CHANNELS_URL = "https://kwrt100.diskstation.dynv6.net:5666/3.m3u"
         
-        // 【新增】默认 EPG URL（用于默认视频源的节目指南）
+        // 默认 EPG URL（用于默认视频源的节目指南）
         const val DEFAULT_EPG_URL = "http://e.erw.cc/all.xml.gz"
     }
 }
