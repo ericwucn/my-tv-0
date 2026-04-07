@@ -188,45 +188,32 @@ class PlaybackControlFragment : Fragment() {
         Log.d(TAG, "updateProgress: playerDuration=$playerDuration, position=$position, isCatchupMode=$isCatchupMode, isInTimeShiftMode=$isInTimeShiftMode")
 
         activity?.runOnUiThread {
-            if (isCatchupMode) {
-                // 回放模式：使用播放器的实际时间
+            if (isCatchupMode || isInTimeShiftMode) {
+                // 回放/时移模式：使用播放器的实际时间
                 if (playerDuration <= 0) return@runOnUiThread
                 val progress = ((position.toDouble() / playerDuration) * 1000).toInt()
                 binding.seekbar.progress = progress
                 binding.timeCurrent.text = formatTime(position)
                 binding.timeDuration.text = formatTime(playerDuration)
-                Log.d(TAG, "回放时间轴: position=${position/1000}秒, duration=${playerDuration/1000}秒, progress=$progress")
-            } else if (isInTimeShiftMode) {
-                // 时移模式：时间轴为 90 分钟窗口，右侧动态显示 NOW
-                val windowDuration = maxLiveRewind // 90分钟
                 
-                // 当前位置在时间轴中的位置（相对于缓冲开始）
-                val progress = (position.toDouble() / windowDuration * 1000).toInt()
+                // 显示时移模式标识
+                if (isInTimeShiftMode) {
+                    val offsetSeconds = (System.currentTimeMillis() / 1000 - timeShiftStartPosition).toInt()
+                    binding.programTitle.text = "时移 -${formatTime(offsetSeconds * 1000L)}"
+                }
                 
-                binding.seekbar.progress = progress.coerceIn(0, 1000)
-                binding.seekbar.max = 1000
-                
-                // 显示偏移时间（负数表示回退了多久）
-                val offsetText = "-${formatTime(position)}"
-                binding.timeCurrent.text = offsetText
-                binding.timeDuration.text = "NOW"
-                
-                Log.d(TAG, "时移时间轴: offset=${position/1000}秒, progress=$progress")
+                Log.d(TAG, "回放/时移时间轴: position=${position/1000}秒, duration=${playerDuration/1000}秒, progress=$progress")
             } else {
-                // 直播模式：时间轴为 NOW左侧90分钟，右侧NOW+5分钟
-                val windowDuration = maxLiveRewind + liveForwardBuffer // 95分钟
-                
-                // 当前位置在时间轴的 90/95 处
-                val progress = (maxLiveRewind.toDouble() / windowDuration * 1000).toInt()
-                
-                binding.seekbar.progress = progress.coerceIn(0, 1000)
+                // 直播模式：时间轴为 NOW左侧90分钟（可回退），右侧5分钟（缓冲）
+                // 显示格式：左侧 "-90:00"，右侧 "LIVE"
+                binding.seekbar.progress = 1000 // 当前在 LIVE 位置
                 binding.seekbar.max = 1000
                 
-                // 时间显示
-                binding.timeCurrent.text = "LIVE"
-                binding.timeDuration.text = formatTime(windowDuration)
+                // 时间显示：显示最大可回退时间
+                binding.timeCurrent.text = "-${formatTime(maxLiveRewind)}" // -90:00
+                binding.timeDuration.text = "LIVE"
                 
-                Log.d(TAG, "直播时间轴: progress=$progress, windowDuration=${windowDuration/60000}分钟")
+                Log.d(TAG, "直播时间轴: 可回退${maxLiveRewind/60000}分钟")
             }
         }
     }
@@ -252,24 +239,30 @@ class PlaybackControlFragment : Fragment() {
             player.seekTo(newPosition)
             Log.d(TAG, "回放快退: ${player.currentPosition} -> $newPosition")
         } else {
-            // 直播/时移模式
+            // 直播/时移模式：需要通过时移 URL 实现
+            val now = System.currentTimeMillis() / 1000
+            val maxRewindSeconds = maxLiveRewind / 1000 // 90分钟
+            
             if (!isInTimeShiftMode) {
-                // 第一次回退，切换到时移模式
+                // 第一次回退，计算时移开始时间
+                val newStartTime = now - ms / 1000
+                // 限制不能回退超过最大时间
+                timeShiftStartPosition = Math.max(newStartTime, now - maxRewindSeconds)
                 isInTimeShiftMode = true
-                timeShiftStartPosition = System.currentTimeMillis() / 1000 - maxLiveRewind / 1000
-                timeShiftBasePosition = 0
-                Log.d(TAG, "切换到时移模式: startTime=$timeShiftStartPosition")
+                Log.d(TAG, "切换到时移模式: startTime=$timeShiftStartPosition, 回退 ${(now - timeShiftStartPosition)} 秒")
+                
+                // 请求时移 URL
+                (activity as? MainActivity)?.startTimeShift(timeShiftStartPosition)
+            } else {
+                // 已经在时移模式，继续回退
+                val newStartTime = timeShiftStartPosition - ms / 1000
+                // 限制不能回退超过最大时间
+                timeShiftStartPosition = Math.max(newStartTime, now - maxRewindSeconds)
+                Log.d(TAG, "时移快退: 新startTime=$timeShiftStartPosition, 回退 ${ms/1000} 秒")
+                
+                // 请求新的时移 URL
+                (activity as? MainActivity)?.startTimeShift(timeShiftStartPosition)
             }
-            
-            // 时移模式快退
-            val currentPlaybackPosition = player.currentPosition
-            var newPosition = currentPlaybackPosition - ms
-            newPosition = Math.max(newPosition, 0)
-            player.seekTo(newPosition)
-            
-            // 更新基准位置（相对于时移开始时间）
-            timeShiftBasePosition = newPosition
-            Log.d(TAG, "时移快退: position=$newPosition")
         }
         updateProgress()
     }

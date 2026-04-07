@@ -141,19 +141,20 @@ class MainViewModel : ViewModel() {
 
         cacheChannels = getCache()
 
-        // 检测旧版本缓存（不含 catchupSource 字段），清除后重新从网络加载
-        if (cacheChannels.isNotEmpty() && !cacheChannels.contains("catchupSource")) {
-            Log.i(TAG, "检测到旧版本缓存，清除以重新加载（支持回看功能）")
-            cacheFile!!.writeText("")
-            cacheChannels = ""
-        }
-
         if (cacheChannels.isEmpty()) {
-            Log.i(TAG, "cacheChannels isEmpty, 使用本地默认频道列表")
-            // 使用本地默认频道列表（原始逻辑）
-            val localChannels = context.resources.openRawResource(DEFAULT_CHANNELS_FILE).bufferedReader()
-                .use { it.readText() }
-            tryStr2Channels(localChannels, null, "", "")
+            // 缓存为空时，检查是否有之前选择的视频源
+            if (!SP.configUrl.isNullOrEmpty()) {
+                Log.i(TAG, "cacheChannels isEmpty, 从已保存的视频源加载: ${SP.configUrl}")
+                viewModelScope.launch {
+                    importFromUrl(SP.configUrl!!)
+                }
+            } else {
+                Log.i(TAG, "cacheChannels isEmpty, 使用本地默认频道列表")
+                // 使用本地默认频道列表（原始逻辑）
+                val localChannels = context.resources.openRawResource(DEFAULT_CHANNELS_FILE).bufferedReader()
+                    .use { it.readText() }
+                tryStr2Channels(localChannels, null, "", "")
+            }
         } else {
             Log.i(TAG, "cacheChannels $cacheFile ${cacheChannels.take(100)}...")
 

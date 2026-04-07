@@ -448,6 +448,37 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * 开始时移播放（直播快退）
+     * @param seekTime 时移开始时间（Unix 时间戳，秒）
+     */
+    fun startTimeShift(seekTime: Long) {
+        val tvModel = viewModel.groupModel.getCurrent() ?: return
+        val catchupSource = tvModel.tv.catchupSource
+        
+        if (catchupSource.isNullOrEmpty()) {
+            Log.w(TAG, "startTimeShift: 不支持时移")
+            return
+        }
+        
+        Log.i(TAG, "startTimeShift: seekTime=$seekTime, catchupSource=$catchupSource")
+        
+        // 标记进入时移模式（复用 catchup 模式）
+        tvModel.isInCatchupMode = true
+        
+        // 保存原始直播 URL（如果还没保存）
+        if (tvModel.catchupOriginalUris == null) {
+            tvModel.catchupOriginalUris = tvModel.tv.uris
+        }
+        
+        // 构建时移 URL
+        val timeShiftUrl = buildCatchupUrl(tvModel.tv.uris.firstOrNull() ?: "", catchupSource, seekTime)
+        Log.i(TAG, "时移URL: $timeShiftUrl")
+        
+        // 更新播放器
+        playerFragment.playCatchup(tvModel, timeShiftUrl)
+    }
+
     fun prev() {
         exitCatchupMode()
         val prevGroup = viewModel.groupModel.positionValue
