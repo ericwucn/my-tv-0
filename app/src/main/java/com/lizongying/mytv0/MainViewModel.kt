@@ -86,11 +86,30 @@ class MainViewModel : ViewModel() {
                 if (it.startsWith("http")) {
                     viewModelScope.launch {
                         Log.i(TAG, "update config url: $it")
-                        importFromUrl(it)
-                        updateEPG()
+                        val success = importFromUrl(it)
+                        // 仅在视频源更新成功时才同步更新 EPG
+                        if (success) {
+                            updateEPG()
+                        }
                     }
                 }
             }
+        }
+    }
+
+    /**
+     * 检查并执行每日首次启动的 EPG 更新
+     */
+    fun checkAndUpdateEPGOnFirstStartOfDay() {
+        val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
+        val lastUpdateDate = SP.epgLastUpdateDate
+        
+        if (lastUpdateDate != today) {
+            Log.i(TAG, "每日首次启动，更新 EPG (lastUpdate=$lastUpdateDate, today=$today)")
+            SP.epgLastUpdateDate = today
+            updateEPG()
+        } else {
+            Log.i(TAG, "今日已更新过 EPG，跳过 (date=$today)")
         }
     }
 
@@ -421,11 +440,12 @@ class MainViewModel : ViewModel() {
         return success
     }
 
-    private suspend fun importFromUrl(url: String, id: String = "") {
+    suspend fun importFromUrl(url: String, id: String = ""): Boolean {
         val urls = getUrls(url).map { Pair(it, url) }
 
         var err = 0
         var shouldBreak = false
+        var success = false
         for ((a, b) in urls) {
             Log.i(TAG, "request $a")
             withContext(Dispatchers.IO) {
@@ -440,6 +460,7 @@ class MainViewModel : ViewModel() {
                         }
                         err = 0
                         shouldBreak = true
+                        success = true
                     } else {
                         Log.e(TAG, "Request status ${response.codeAlias()}")
                         err = R.string.channel_status_error
@@ -465,6 +486,8 @@ class MainViewModel : ViewModel() {
         if (err != 0) {
             err.showToast()
         }
+        
+        return success
     }
 
     fun reset(context: Context) {

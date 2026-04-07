@@ -60,6 +60,8 @@ object SP {
 
     private const val KEY_SOFT_DECODE = "soft_decode"
 
+    private const val KEY_EPG_LAST_UPDATE_DATE = "epg_last_update_date"
+
     const val DEFAULT_CHANNEL_REVERSAL = false
     const val DEFAULT_CHANNEL_NUM = false
     const val DEFAULT_TIME = true
@@ -216,4 +218,8 @@ object SP {
     var sources: String?
         get() = sp.getString(KEY_SOURCES, DEFAULT_SOURCES)
         set(value) = sp.edit().putString(KEY_SOURCES, value).apply()
+
+    var epgLastUpdateDate: String?
+        get() = sp.getString(KEY_EPG_LAST_UPDATE_DATE, "")
+        set(value) = sp.edit().putString(KEY_EPG_LAST_UPDATE_DATE, value).apply()
 }

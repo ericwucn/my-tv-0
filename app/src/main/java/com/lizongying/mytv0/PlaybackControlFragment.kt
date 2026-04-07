@@ -61,6 +61,11 @@ class PlaybackControlFragment : Fragment() {
     private val maxLiveRewind = 90 * 60 * 1000L // 最大回退 90 分钟
     private val liveForwardBuffer = 5 * 60 * 1000L // 直播时快进缓冲：5分钟
     
+    // 直播快退相关
+    private var isInTimeShiftMode = false // 是否处于时移模式
+    private var timeShiftStartPosition = 0L // 时移开始时间（Unix秒）
+    private var timeShiftBasePosition = 0L // 时移基准播放位置（毫秒）
+    
     // 回放模式：节目前后缓冲
     private val catchupBuffer = 2 * 60 * 1000L // 回放节目前后各加2分钟
     
@@ -144,6 +149,7 @@ class PlaybackControlFragment : Fragment() {
     fun setTVModel(model: TVModel) {
         this.tvModel = model
         isCatchupMode = model.isInCatchupMode
+        isInTimeShiftMode = false // 重置时移模式
         
         if (isCatchupMode) {
             // 回放模式：记录节目时间范围
@@ -179,19 +185,35 @@ class PlaybackControlFragment : Fragment() {
         val playerDuration = player.duration
         val position = player.currentPosition
 
-        Log.d(TAG, "updateProgress: playerDuration=$playerDuration, position=$position, isCatchupMode=$isCatchupMode")
+        Log.d(TAG, "updateProgress: playerDuration=$playerDuration, position=$position, isCatchupMode=$isCatchupMode, isInTimeShiftMode=$isInTimeShiftMode")
 
         activity?.runOnUiThread {
             if (isCatchupMode) {
-                // 回放模式：使用播放器的实际时间（恢复到2041版本）
+                // 回放模式：使用播放器的实际时间
                 if (playerDuration <= 0) return@runOnUiThread
                 val progress = ((position.toDouble() / playerDuration) * 1000).toInt()
                 binding.seekbar.progress = progress
                 binding.timeCurrent.text = formatTime(position)
                 binding.timeDuration.text = formatTime(playerDuration)
                 Log.d(TAG, "回放时间轴: position=${position/1000}秒, duration=${playerDuration/1000}秒, progress=$progress")
+            } else if (isInTimeShiftMode) {
+                // 时移模式：时间轴为 90 分钟窗口，右侧动态显示 NOW
+                val windowDuration = maxLiveRewind // 90分钟
+                
+                // 当前位置在时间轴中的位置（相对于缓冲开始）
+                val progress = (position.toDouble() / windowDuration * 1000).toInt()
+                
+                binding.seekbar.progress = progress.coerceIn(0, 1000)
+                binding.seekbar.max = 1000
+                
+                // 显示偏移时间（负数表示回退了多久）
+                val offsetText = "-${formatTime(position)}"
+                binding.timeCurrent.text = offsetText
+                binding.timeDuration.text = "NOW"
+                
+                Log.d(TAG, "时移时间轴: offset=${position/1000}秒, progress=$progress")
             } else {
-                // 直播模式：时间轴为 Now左侧90分钟，右侧Now+5分钟
+                // 直播模式：时间轴为 NOW左侧90分钟，右侧NOW+5分钟
                 val windowDuration = maxLiveRewind + liveForwardBuffer // 95分钟
                 
                 // 当前位置在时间轴的 90/95 处
@@ -230,15 +252,24 @@ class PlaybackControlFragment : Fragment() {
             player.seekTo(newPosition)
             Log.d(TAG, "回放快退: ${player.currentPosition} -> $newPosition")
         } else {
-            // 直播模式：快退需要切换到回放模式
-            // 计算回看时间点
-            val now = System.currentTimeMillis() / 1000
-            val seekTime = now - (ms / 1000)
+            // 直播/时移模式
+            if (!isInTimeShiftMode) {
+                // 第一次回退，切换到时移模式
+                isInTimeShiftMode = true
+                timeShiftStartPosition = System.currentTimeMillis() / 1000 - maxLiveRewind / 1000
+                timeShiftBasePosition = 0
+                Log.d(TAG, "切换到时移模式: startTime=$timeShiftStartPosition")
+            }
             
-            Log.d(TAG, "直播快退: 切换到回放模式, seekTime=$seekTime")
+            // 时移模式快退
+            val currentPlaybackPosition = player.currentPosition
+            var newPosition = currentPlaybackPosition - ms
+            newPosition = Math.max(newPosition, 0)
+            player.seekTo(newPosition)
             
-            // 通知 MainActivity 切换到回放模式
-            (activity as? MainActivity)?.startCatchupFromLive(seekTime)
+            // 更新基准位置（相对于时移开始时间）
+            timeShiftBasePosition = newPosition
+            Log.d(TAG, "时移快退: position=$newPosition")
         }
         updateProgress()
     }
@@ -252,14 +283,18 @@ class PlaybackControlFragment : Fragment() {
             newPosition = Math.min(newPosition, player.duration)
             player.seekTo(newPosition)
             Log.d(TAG, "回放快进: ${player.currentPosition} -> $newPosition")
-        } else {
-            // 直播模式：快进有限制，只能快进到当前直播点
+        } else if (isInTimeShiftMode) {
+            // 时移模式快进：只能在已缓冲的内容范围内快进
             val currentPosition = player.currentPosition
             val duration = player.duration
-            
-            val newPosition = Math.min(currentPosition + ms, duration)
+            var newPosition = currentPosition + ms
+            // 不能超过缓冲范围（即当前直播点）
+            newPosition = Math.min(newPosition, duration)
             player.seekTo(newPosition)
-            Log.d(TAG, "直播快进: $currentPosition -> $newPosition (max=$duration)")
+            Log.d(TAG, "时移快进: $currentPosition -> $newPosition (max=$duration)")
+        } else {
+            // 直播模式（未回退）：不能快进
+            Log.d(TAG, "直播模式：当前已是最新，无法快进")
         }
         updateProgress()
     }

@@ -52,7 +52,7 @@ class SettingFragment : Fragment() {
         _binding = SettingBinding.inflate(inflater, container, false)
 
         binding.versionName.text = "v${context.appVersionName}"
-        binding.version.text = "https://github.com/lizongying/my-tv-0"
+        binding.version.text = "https://github.com/ericwucn/my-tv-0"
 
         val switchChannelReversal = _binding?.switchChannelReversal
         switchChannelReversal?.isChecked = SP.channelReversal
@@ -351,6 +351,7 @@ class SettingFragment : Fragment() {
             viewModel.setDisplaySeconds(SP.DEFAULT_DISPLAY_SECONDS)
 
             SP.epg = SP.DEFAULT_EPG
+            SP.epgLastUpdateDate = "" // 清除日期标记，下次启动会重新更新
             viewModel.updateEPG()
 
             R.string.config_restored.showToast()

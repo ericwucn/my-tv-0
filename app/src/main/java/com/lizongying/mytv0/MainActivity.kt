@@ -180,7 +180,8 @@ class MainActivity : AppCompatActivity() {
                     viewModel.groupModel.isInLikeMode =
                         SP.defaultLike && viewModel.groupModel.positionValue == 0
 
-                    viewModel.updateEPG()
+                    // 检查每日首次启动，自动更新 EPG
+                    viewModel.checkAndUpdateEPGOnFirstStartOfDay()
                 }
             }
 
