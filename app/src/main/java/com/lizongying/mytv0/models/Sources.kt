@@ -130,6 +130,22 @@ class Sources {
         _changed.value = version
         version++
     }
+    
+    /**
+     * 添加默认视频源到列表第一个位置（如果不存在）
+     */
+    fun addDefaultSourceIfNotExists(uri: String) {
+        val index = sourcesValue.indexOfFirst { it.uri == uri }
+        if (index == -1) {
+            // 不存在，添加到第一个位置
+            val newSource = Source(uri = uri)
+            _sources.value = listOf(newSource) + sourcesValue
+            SP.sources = gson.toJson(sourcesValue, typeSourceList) ?: ""
+            _changed.value = version
+            version++
+            Log.i(TAG, "添加默认视频源: $uri")
+        }
+    }
 
     init {
         init()

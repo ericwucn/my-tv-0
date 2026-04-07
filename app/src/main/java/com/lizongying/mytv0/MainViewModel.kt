@@ -55,6 +55,11 @@ class MainViewModel : ViewModel() {
 
     val sources = Sources()
 
+    init {
+        // 确保 kwrt100 源在列表第一个位置
+        sources.addDefaultSourceIfNotExists(KWRT100_CHANNELS_URL)
+    }
+
     private val _channelsOk = MutableLiveData<Boolean>()
     val channelsOk: LiveData<Boolean>
         get() = _channelsOk
@@ -144,22 +149,11 @@ class MainViewModel : ViewModel() {
         }
 
         if (cacheChannels.isEmpty()) {
-            Log.i(TAG, "cacheChannels isEmpty, 尝试从默认URL加载")
-            // 【新增】先尝试从网络加载默认视频源
-            viewModelScope.launch {
-                try {
-                    importFromUrl(DEFAULT_CHANNELS_URL)
-                    Log.i(TAG, "从默认URL加载完成")
-                    // 加载默认频道后，设置配置URL（EPG URL会在 importFromUrl -> tryStr2Channels 中自动检测并加载）
-                    SP.configUrl = DEFAULT_CHANNELS_URL
-                } catch (e: Exception) {
-                    Log.w(TAG, "从默认URL加载失败: ${e.message}")
-                    // 网络加载失败，使用本地默认
-                    val localChannels = context.resources.openRawResource(DEFAULT_CHANNELS_FILE).bufferedReader()
-                        .use { it.readText() }
-                    tryStr2Channels(localChannels, null, "", "")
-                }
-            }
+            Log.i(TAG, "cacheChannels isEmpty, 使用本地默认频道列表")
+            // 使用本地默认频道列表（原始逻辑）
+            val localChannels = context.resources.openRawResource(DEFAULT_CHANNELS_FILE).bufferedReader()
+                .use { it.readText() }
+            tryStr2Channels(localChannels, null, "", "")
         } else {
             Log.i(TAG, "cacheChannels $cacheFile ${cacheChannels.take(100)}...")
 
@@ -819,8 +813,11 @@ class MainViewModel : ViewModel() {
         const val CACHE_EPG = "epg.xml"
         val DEFAULT_CHANNELS_FILE = R.raw.channels
         
-        // 【第10个自选源】kwrt100 NAS 视频源（当本地缓存为空时尝试加载）
-        const val DEFAULT_CHANNELS_URL = "https://kwrt100.diskstation.dynv6.net:5666/3.m3u"
+        // 默认视频源 URL（用于设置菜单中的视频源列表）
+        const val DEFAULT_CHANNELS_URL = "https://lyrics.run/8.218.208.240/playlist.m3u"
+        
+        // 【自选源】kwrt100 NAS 视频源（放在视频源列表第一个）
+        const val KWRT100_CHANNELS_URL = "https://kwrt100.diskstation.dynv6.net:5666/3.m3u"
         
         // 默认 EPG URL（用于默认视频源的节目指南）
         const val DEFAULT_EPG_URL = "http://e.erw.cc/all.xml.gz"
