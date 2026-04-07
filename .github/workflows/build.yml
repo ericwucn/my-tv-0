@@ -38,6 +38,28 @@ jobs:
           # override default build-tools version (29.0.3) -- optional
           BUILD_TOOLS_VERSION: "34.0.0"
 
+      - name: Rename APK with timestamp
+        id: rename_apk
+        run: |
+          # 获取版本号（从 tag 中提取，如 v1.5.1.8 -> 1.5.1.8）
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          
+          # 获取当前时间戳 (MMDD-HHmm 格式，UTC+8)
+          TIMESTAMP=$(TZ='Asia/Shanghai' date +%m%d-%H%M)
+          
+          # 构建新文件名
+          NEW_NAME="my-tv-0_${VERSION}-${TIMESTAMP}.apk"
+          
+          # 重命名文件
+          SIGNED_FILE="${{ steps.sign_app.outputs.signedReleaseFile }}"
+          mv "$SIGNED_FILE" "$(dirname "$SIGNED_FILE")/$NEW_NAME"
+          
+          # 输出新的文件路径
+          echo "signedReleaseFile=$(dirname "$SIGNED_FILE")/$NEW_NAME" >> $GITHUB_OUTPUT
+          echo "apkName=$NEW_NAME" >> $GITHUB_OUTPUT
+          echo "Renamed APK to: $NEW_NAME"
+
       - name: Get History
         id: get_history
         run: |
@@ -54,7 +76,7 @@ jobs:
       - name: Create Release and Upload Asset
         uses: softprops/action-gh-release@v1
         with:
-          files: ${{ steps.sign_app.outputs.signedReleaseFile }}
+          files: ${{ steps.rename_apk.outputs.signedReleaseFile }}
           body_path: history.md
           generate_release_notes: false
         env:

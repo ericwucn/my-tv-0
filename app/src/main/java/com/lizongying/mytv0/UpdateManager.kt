@@ -35,6 +35,7 @@ class UpdateManager(
     var release: ReleaseResponse? = null
 
     private suspend fun getRelease(): ReleaseResponse? {
+        // 先尝试从 version.json 获取
         val urls = getUrls(VERSION_URL)
 
         for (u in urls) {
@@ -46,22 +47,97 @@ class UpdateManager(
 
                     if (response.isSuccessful) {
                         response.bodyAlias()?.let {
-                            return@withContext gson.fromJson(
+                            val releaseResponse = gson.fromJson(
                                 it.string(),
                                 ReleaseResponse::class.java
                             )
+                            
+                            // 如果 apk_url 为空，尝试从 GitHub Release API 获取
+                            if (releaseResponse.apk_url.isNullOrEmpty()) {
+                                val ghRelease = getGitHubRelease()
+                                if (ghRelease != null) {
+                                    releaseResponse.apk_url = ghRelease.apk_url
+                                    releaseResponse.apk_name = ghRelease.apk_name
+                                }
+                            }
+                            
+                            return@withContext releaseResponse
                         }
                     } else {
                         Log.e(TAG, "getRelease $u ${response.codeAlias()}")
                     }
                 } catch (e: Exception) {
-//                    Log.e(TAG, "getRelease $u error", e)
-                    Log.e(TAG, "getRelease $u error")
+                    Log.e(TAG, "getRelease $u error: ${e.message}")
                 }
             }
         }
 
         return null
+    }
+    
+    /**
+     * 从 GitHub Release API 获取实际的 APK 下载地址
+     */
+    private suspend fun getGitHubRelease(): ReleaseResponse? {
+        return withContext(Dispatchers.IO) {
+            try {
+                val request = okhttp3.Request.Builder()
+                    .url("https://api.github.com/repos/ericwucn/my-tv-0/releases/latest")
+                    .build()
+                val response = HttpClient.okHttpClient.newCall(request).execute()
+                
+                if (response.isSuccessful) {
+                    response.bodyAlias()?.let { body ->
+                        val json = com.google.gson.JsonParser.parseString(body.string()).asJsonObject
+                        
+                        // 获取版本号
+                        val versionName = json.get("tag_name")?.asString ?: return@withContext null
+                        
+                        // 获取第一个 APK 资产
+                        val assets = json.getAsJsonArray("assets")
+                        for (asset in assets) {
+                            val assetObj = asset.asJsonObject
+                            val name = assetObj.get("name")?.asString ?: continue
+                            if (name.endsWith(".apk")) {
+                                val downloadUrl = assetObj.get("browser_download_url")?.asString ?: continue
+                                
+                                // 从版本名解析版本号 (v1.5.1.8 -> 17105158)
+                                val versionCode = parseVersionCode(versionName)
+                                
+                                val release = ReleaseResponse(
+                                    version_code = versionCode,
+                                    version_name = versionName,
+                                    apk_name = name,
+                                    apk_url = downloadUrl
+                                )
+                                
+                                Log.i(TAG, "GitHub Release: $versionName, apk=$name")
+                                return@withContext release
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "getGitHubRelease error: ${e.message}")
+            }
+            null
+        }
+    }
+    
+    private fun parseVersionCode(versionName: String): Long {
+        // v1.5.1.8 -> 17105158
+        try {
+            val parts = versionName.removePrefix("v").split(".")
+            if (parts.size == 4) {
+                return ((parts[0].toLong() * 10000000) +
+                        (parts[1].toLong() * 100000) +
+                        (parts[2].toLong() * 1000) +
+                        parts[3].toLong())
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "parseVersionCode error: ${e.message}")
+        }
+        return 0
     }
 
     fun checkAndUpdate() {
@@ -102,20 +178,22 @@ class UpdateManager(
     }
 
     private fun startDownload(release: ReleaseResponse) {
-        if (release.apk_name.isNullOrEmpty() || release.apk_url.isNullOrEmpty()) {
+        val apkName = release.apk_name ?: return
+        val apkUrl = release.apk_url ?: return
+        if (apkName.isEmpty() || apkUrl.isEmpty()) {
             return
         }
 
         val downloadManager =
             context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
         val request =
-            Request(Uri.parse(release.apk_url))
+            Request(Uri.parse(apkUrl))
         context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)?.mkdirs()
         Log.i(TAG, "save dir ${Environment.DIRECTORY_DOWNLOADS}")
         request.setDestinationInExternalFilesDir(
             context,
             Environment.DIRECTORY_DOWNLOADS,
-            release.apk_name
+            apkName
         )
         request.setTitle("${context.getString(R.string.app_name)} ${release.version_name}")
         request.setNotificationVisibility(Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
@@ -125,7 +203,7 @@ class UpdateManager(
         // 获取下载任务的引用
         val downloadReference = downloadManager.enqueue(request)
 
-        downloadReceiver = DownloadReceiver(context, release.apk_name, downloadReference)
+        downloadReceiver = DownloadReceiver(context, apkName, downloadReference)
 
         val intentFilter = IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
 
