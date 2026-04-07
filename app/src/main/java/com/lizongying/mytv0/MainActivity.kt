@@ -463,8 +463,8 @@ class MainActivity : AppCompatActivity() {
         
         Log.i(TAG, "startTimeShift: seekTime=$seekTime, catchupSource=$catchupSource")
         
-        // 标记进入时移模式（复用 catchup 模式）
-        tvModel.isInCatchupMode = true
+        // 注意：不设置 isInCatchupMode，这是时移模式，不是回放模式
+        // 时移模式由 PlaybackControlFragment 的 isInTimeShiftMode 控制
         
         // 保存原始直播 URL（如果还没保存）
         if (tvModel.catchupOriginalUris == null) {
@@ -475,7 +475,7 @@ class MainActivity : AppCompatActivity() {
         val timeShiftUrl = buildCatchupUrl(tvModel.tv.uris.firstOrNull() ?: "", catchupSource, seekTime)
         Log.i(TAG, "时移URL: $timeShiftUrl")
         
-        // 更新播放器
+        // 更新播放器（使用 playCatchup 方法播放时移流）
         playerFragment.playCatchup(tvModel, timeShiftUrl)
     }
 

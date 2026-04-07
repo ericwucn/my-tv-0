@@ -298,7 +298,7 @@ class PlaybackControlFragment : Fragment() {
             override fun run() {
                 if (isRewinding) {
                     rewind(rewindStepLong) // 长按每次60秒
-                    handler.postDelayed(this, 500)
+                    handler.postDelayed(this, 1000) // 每秒触发一次，即每秒回退1分钟
                 }
             }
         })
@@ -310,7 +310,7 @@ class PlaybackControlFragment : Fragment() {
             override fun run() {
                 if (isForwarding) {
                     forward(forwardStepLong) // 长按每次120秒
-                    handler.postDelayed(this, 500)
+                    handler.postDelayed(this, 1000) // 每秒触发一次
                 }
             }
         })
