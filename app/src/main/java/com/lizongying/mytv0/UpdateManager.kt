@@ -142,39 +142,35 @@ class UpdateManager(
 
     fun checkAndUpdate() {
         Log.i(TAG, "checkAndUpdate")
+        // 先显示检测中提示
+        "正在检测版本...".showToast()
+
         CoroutineScope(Dispatchers.Main).launch {
-            var text = "版本获取失败"
-            var hasNewVersion = false
             try {
                 release = getRelease()
                 Log.i(TAG, "versionCode $versionCode ${release?.version_code}")
                 if (release?.version_code != null) {
                     if (release?.version_code!! > versionCode) {
-                        // 有新版本
-                        text = "发现新版本：${release?.version_name}，是否更新？"
-                        hasNewVersion = true
+                        // 有新版本，显示更新确认对话框
+                        val text = "发现新版本：${release?.version_name}，是否更新？"
+                        showConfirmDialog(text)
                     } else {
-                        text = "已是最新版本：${release?.version_name}"
-                        hasNewVersion = false
+                        // 已是最新或相同版本
+                        "已是最新版本：${release?.version_name}".showToast()
                     }
+                } else {
+                    "版本获取失败".showToast()
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error occurred: ${e.message}", e)
+                "版本获取失败".showToast()
             }
-            updateUI(text, hasNewVersion)
         }
     }
 
-    private fun updateUI(text: String, hasNewVersion: Boolean) {
-        if (hasNewVersion) {
-            // 有新版本，显示更新确认对话框
-            val dialog = ConfirmationFragment(this@UpdateManager, text, true)
-            dialog.show((context as FragmentActivity).supportFragmentManager, TAG)
-        } else {
-            // 已是最新，仅显示提示
-            val dialog = ConfirmationFragment(this@UpdateManager, text, false)
-            dialog.show((context as FragmentActivity).supportFragmentManager, TAG)
-        }
+    private fun showConfirmDialog(message: String) {
+        val dialog = ConfirmationFragment(this@UpdateManager, message, true)
+        dialog.show((context as FragmentActivity).supportFragmentManager, TAG)
     }
 
     private fun startDownload(release: ReleaseResponse) {
