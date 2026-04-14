@@ -11,6 +11,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.lizongying.mytv0.data.EPG
 import com.lizongying.mytv0.databinding.ProgramBinding
+import com.lizongying.mytv0.models.TVModel
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -25,6 +26,10 @@ class ProgramFragment : Fragment(), ProgramAdapter.ItemListener {
     private lateinit var programAdapter: ProgramAdapter
 
     private lateinit var viewModel: MainViewModel
+    
+    // 回放模式时记录选择的节目信息
+    private var playbackBeginTime: Int = 0
+    private var playbackEndTime: Int = 0
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -58,16 +63,45 @@ class ProgramFragment : Fragment(), ProgramAdapter.ItemListener {
 
     fun onVisible() {
         val context = requireActivity()
+        val now = Utils.getDateTimestamp()
 
         viewModel.groupModel.getCurrent()?.let { tvModel ->
-            val index = tvModel.epgValue.indexOfFirst { it.endTime > Utils.getDateTimestamp() }
             val catchupSource = tvModel.tv.catchupSource
+            
+            // 获取 EPG 列表（显示所有日期）
+            val epgList = tvModel.epgValue.sortedBy { it.beginTime }
+            if (epgList.isEmpty()) return
+            
+            // 确定目标位置：默认选中当前节目
+            var targetPosition = 0
+            
+            if (tvModel.isInCatchupMode) {
+                // 回放模式：定位到回放节目的时间点
+                val playTimestamp = if (playbackBeginTime > 0) {
+                    playbackBeginTime.toLong()
+                } else {
+                    parseTimestamp(tvModel.tv.uris.firstOrNull())
+                }
+                
+                if (playTimestamp > 0) {
+                    targetPosition = epgList.indexOfFirst { epg ->
+                        playTimestamp >= epg.beginTime && playTimestamp < epg.endTime
+                    }
+                    if (targetPosition < 0) targetPosition = 0
+                }
+            } else {
+                // 直播/时移模式：定位到当前正在播放的节目
+                targetPosition = epgList.indexOfFirst { epg ->
+                    epg.beginTime <= now && epg.endTime > now
+                }
+                if (targetPosition < 0) targetPosition = 0
+            }
 
             programAdapter = ProgramAdapter(
                 context,
                 binding.list,
-                tvModel.epgValue,
-                index,
+                epgList,
+                targetPosition,
                 catchupSource,
             )
             binding.list.adapter = programAdapter
@@ -75,12 +109,41 @@ class ProgramFragment : Fragment(), ProgramAdapter.ItemListener {
 
             programAdapter.setItemListener(this)
 
-            if (index > -1) {
-                programAdapter.scrollToPositionAndSelect(index)
-            }
+            // 滚动到中央位置
+            programAdapter.scrollToPositionAndSelect(targetPosition)
 
             handler.postDelayed(hideRunnable, delay)
         }
+    }
+    
+    /**
+     * 记录回放选择的节目信息
+     */
+    fun recordPlaybackInfo(beginTime: Int, endTime: Int) {
+        playbackBeginTime = beginTime
+        playbackEndTime = endTime
+        Log.i(TAG, "recordPlaybackInfo: beginTime=$beginTime, endTime=$endTime")
+    }
+    
+    /**
+     * 从 URL 中解析时间戳
+     */
+    private fun parseTimestamp(url: String?): Long {
+        if (url.isNullOrEmpty()) return 0
+        val timestampPatterns = listOf(
+            Regex("""[?&]start[=_](\d+)"""),
+            Regex("""[?&]t[=_](\d+)"""),
+            Regex("""[?&]time[=_](\d+)"""),
+            Regex("""[?&]begin[=_](\d+)"""),
+            Regex("""/(\d{10})(?:[/\?&]|$)""")
+        )
+        for (pattern in timestampPatterns) {
+            val match = pattern.find(url)
+            if (match != null) {
+                return match.groupValues[1].toLongOrNull() ?: 0
+            }
+        }
+        return 0
     }
 
     fun onHidden() {
@@ -131,6 +194,9 @@ class ProgramFragment : Fragment(), ProgramAdapter.ItemListener {
 
         val tvModel = viewModel.groupModel.getCurrent() ?: return
         val baseUrl = tvModel.tv.uris.firstOrNull() ?: return
+        
+        // 记录回放节目信息
+        recordPlaybackInfo(epg.beginTime, epg.endTime)
 
         // 构建回看 URL
         val catchupUrl = buildCatchupUrl(baseUrl, catchupSource, epg.beginTime, epg.endTime)

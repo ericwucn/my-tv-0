@@ -162,17 +162,41 @@ class ProgramAdapter(
         }
     }
 
-    fun scrollToPositionAndSelect(position: Int) {
+    /**
+     * 滚动到指定位置并选中有焦点，定位到屏幕中央
+     * @param position 要定位的位置
+     * @param currentTimestamp 当前播放时间戳（秒），用于回放模式定位当前节目
+     */
+    fun scrollToPositionAndSelect(position: Int, currentTimestamp: Long = 0) {
         val layoutManager = recyclerView.layoutManager as? LinearLayoutManager
-        layoutManager?.let {
+        layoutManager?.let { lm ->
             recyclerView.postDelayed({
-                it.scrollToPositionWithOffset(position, 0)
+                // 获取 RecyclerView 的高度，计算中央偏移量
+                val recyclerHeight = recyclerView.height
+                if (recyclerHeight > 0) {
+                    // 滚动到中央位置
+                    lm.scrollToPositionWithOffset(position, recyclerHeight / 2)
+                } else {
+                    lm.scrollToPositionWithOffset(position, 0)
+                }
+                
                 val viewHolder = recyclerView.findViewHolderForAdapterPosition(position)
                 viewHolder?.itemView?.apply {
                     isSelected = true
                     requestFocus()
                 }
-            }, 0)
+            }, 50)
+        }
+    }
+    
+    /**
+     * 根据当前播放时间戳找到对应的节目位置
+     * 用于回放模式下定位当前回放的节目
+     */
+    fun findPositionByTimestamp(timestamp: Long): Int {
+        if (timestamp <= 0) return -1
+        return epgList.indexOfFirst { epg ->
+            timestamp >= epg.beginTime && timestamp < epg.endTime
         }
     }
 

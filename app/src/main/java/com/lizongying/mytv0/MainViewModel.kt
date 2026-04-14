@@ -55,10 +55,6 @@ class MainViewModel : ViewModel() {
 
     val sources = Sources()
 
-    init {
-        // 确保 kwrt100 源在列表第一个位置
-        sources.addDefaultSourceIfNotExists(KWRT100_CHANNELS_URL)
-    }
 
     private val _channelsOk = MutableLiveData<Boolean>()
     val channelsOk: LiveData<Boolean>
@@ -73,16 +69,84 @@ class MainViewModel : ViewModel() {
         return getDateFormat(timeFormat)
     }
 
-    fun updateEPG() {
-        viewModelScope.launch {
-            var success = false
-            if (!epgUrl.isNullOrEmpty()) {
-                success = updateEPG(epgUrl!!)
+    private val _isLoadingEpg = MutableLiveData(false)
+    val isLoadingEpg: LiveData<Boolean> = _isLoadingEpg
+    val epgLoadingLiveData: LiveData<Boolean> = _isLoadingEpg
+
+    // EPG 缓存：启动时同步加载，后台异步更新
+    private fun loadEpgCacheOnInit() {
+        if (!this::cacheEPG.isInitialized) {
+            Log.w(TAG, "loadEpgCacheOnInit: cacheEPG not initialized, skip")
+            return
+        }
+        
+        val cacheFile = cacheEPG
+        if (!cacheFile.exists()) {
+            Log.i(TAG, "cacheEPG 不存在，立即更新")
+            updateEpgWithLoading(true)
+            return
+        }
+        
+        // 检查 EPG 缓存是否过期（7天）
+        if (SP.isEpgCacheExpired()) {
+            Log.i(TAG, "EPG 缓存已过期，立即更新")
+            updateEpgWithLoading(true)
+            return
+        }
+        
+        // 缓存未过期：同步加载缓存，立即显示
+        val cacheContent = cacheFile.readText()
+        if (cacheContent.isNotEmpty()) {
+            viewModelScope.launch {
+                val success = readEPG(cacheContent)
+                if (success) {
+                    Log.i(TAG, "EPG 缓存加载成功，立即显示，后台更新")
+                    // 加载成功，后台更新（不阻塞 UI）
+                    updateEpgWithLoading(false)
+                } else {
+                    Log.i(TAG, "EPG 缓存读取失败，立即更新")
+                    updateEpgWithLoading(true)
+                }
             }
-            if (!success && !SP.epg.isNullOrEmpty()) {
-                updateEPG(SP.epg!!)
+        } else {
+            Log.i(TAG, "EPG 缓存为空，立即更新")
+            updateEpgWithLoading(true)
+        }
+    }
+    
+    /**
+     * 更新 EPG（带加载状态）
+     * @param showLoading 是否显示加载提示
+     */
+    private fun updateEpgWithLoading(showLoading: Boolean) {
+        if (showLoading) {
+            _isLoadingEpg.value = true
+        }
+        viewModelScope.launch {
+            val success = updateEpgInternal()
+            _isLoadingEpg.value = false
+            if (!success) {
+                Log.w(TAG, "updateEpgWithLoading: 更新失败")
             }
         }
+    }
+    
+    /**
+     * 内部 EPG 更新逻辑（不含加载状态）
+     */
+    private suspend fun updateEpgInternal(): Boolean {
+        var success = false
+        if (!epgUrl.isNullOrEmpty()) {
+            success = updateEpgUrl(epgUrl!!)
+        }
+        if (!success && !SP.epg.isNullOrEmpty()) {
+            success = updateEpgUrl(SP.epg!!)
+        }
+        return success
+    }
+    
+    fun updateEPG() {
+        updateEpgWithLoading(false)
     }
 
     fun updateConfig() {
@@ -94,7 +158,7 @@ class MainViewModel : ViewModel() {
                         val success = importFromUrl(it)
                         // 仅在视频源更新成功时才同步更新 EPG
                         if (success) {
-                            updateEPG()
+                            updateEpgWithLoading(false)
                         }
                     }
                 }
@@ -109,12 +173,14 @@ class MainViewModel : ViewModel() {
         val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
         val lastUpdateDate = SP.epgLastUpdateDate
         
-        if (lastUpdateDate != today) {
-            Log.i(TAG, "每日首次启动，更新 EPG (lastUpdate=$lastUpdateDate, today=$today)")
+        // 每日更新 或 EPG 缓存过期（7天）时都触发更新
+        val cacheExpired = SP.isEpgCacheExpired()
+        if (lastUpdateDate != today || cacheExpired) {
+            Log.i(TAG, "更新 EPG (lastUpdate=$lastUpdateDate, today=$today, cacheExpired=$cacheExpired)")
             SP.epgLastUpdateDate = today
-            updateEPG()
+            updateEpgWithLoading(false)
         } else {
-            Log.i(TAG, "今日已更新过 EPG，跳过 (date=$today)")
+            Log.i(TAG, "今日已更新过 EPG 且缓存未过期，跳过 (date=$today)")
         }
     }
 
@@ -169,16 +235,8 @@ class MainViewModel : ViewModel() {
 
         viewModelScope.launch {
             cacheEPG = File(appDirectory, CACHE_EPG)
-            if (!cacheEPG.exists()) {
-                cacheEPG.createNewFile()
-            } else {
-                Log.i(TAG, "cacheEPG exists")
-                if (readEPG(cacheEPG.readText())) {
-                    Log.i(TAG, "cacheEPG success")
-                } else {
-                    Log.i(TAG, "cacheEPG failure")
-                }
-            }
+            // 启动时：同步加载缓存，立即显示，后台更新
+            loadEpgCacheOnInit()
         }
 
         initialized = true
@@ -260,7 +318,9 @@ class MainViewModel : ViewModel() {
     private suspend fun writeEpgCache(epgMap: Map<String, List<EPG>>) = withContext(Dispatchers.IO) {
         try {
             cacheEPG.writeText(gson.toJson(epgMap))
-            Log.i(TAG, "writeEpgCache written")
+            // 更新缓存时间戳
+            SP.epgCacheTimestamp = System.currentTimeMillis()
+            Log.i(TAG, "writeEpgCache written, timestamp updated")
         } catch (e: Exception) {
             Log.e(TAG, "writeEpgCache", e)
         }
@@ -386,7 +446,7 @@ class MainViewModel : ViewModel() {
      * 支持多个 EPG 源地址（逗号分隔）
      * 【修改】增加超时时间到 120 秒（gzip EPG 文件较大）
      */
-    private suspend fun updateEPG(url: String): Boolean {
+    private suspend fun updateEpgUrl(url: String): Boolean {
         val urls = url.split(",").flatMap { u -> getUrls(u) }
 
         var success = false
@@ -525,7 +585,7 @@ class MainViewModel : ViewModel() {
                 Log.i(TAG, "发现 m3u 内嵌 EPG URL: $m3uEpgUrl")
                 // 设置 EPG URL 并更新 EPG
                 viewModelScope.launch {
-                    updateEPG(m3uEpgUrl)
+                    updateEpgUrl(m3uEpgUrl)
                 }
             }
             
@@ -816,9 +876,6 @@ class MainViewModel : ViewModel() {
         
         // 默认视频源 URL（用于设置菜单中的视频源列表）
         const val DEFAULT_CHANNELS_URL = "https://lyrics.run/8.218.208.240/playlist.m3u"
-        
-        // 【自选源】kwrt100 NAS 视频源（放在视频源列表第一个）
-        const val KWRT100_CHANNELS_URL = "https://kwrt100.diskstation.dynv6.net:5666/3.m3u"
         
         // 默认 EPG URL（用于默认视频源的节目指南）
         const val DEFAULT_EPG_URL = "http://e.erw.cc/all.xml.gz"

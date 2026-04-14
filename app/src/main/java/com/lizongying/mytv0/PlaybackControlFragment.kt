@@ -6,6 +6,7 @@ import android.os.Looper
 import android.util.Log
 import android.view.KeyEvent
 import android.view.LayoutInflater
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.SeekBar
@@ -52,28 +53,27 @@ class PlaybackControlFragment : Fragment() {
     // 回放节目时间范围
     private var catchupStartTime: Long = 0
     private var catchupEndTime: Long = 0
-    
-    // 是否正在长按快退/快进
-    private var isRewinding = false
-    private var isForwarding = false
 
-    // 直播模式下的时间限制
-    private val maxLiveRewind = 90 * 60 * 1000L // 最大回退 90 分钟
-    private val liveForwardBuffer = 5 * 60 * 1000L // 直播时快进缓冲：5分钟
+    // 时移模式
+    private val maxRewindSeconds = 90 * 60L // 最大回退 90 分钟（秒）
+    private var rewindSeconds = 0L          // 时移后退秒数（0 = 直播位置）
     
-    // 直播快退相关
-    private var isInTimeShiftMode = false // 是否处于时移模式
-    private var timeShiftStartPosition = 0L // 时移开始时间（Unix秒）
-    private var timeShiftBasePosition = 0L // 时移基准播放位置（毫秒）
-    
-    // 回放模式：节目前后缓冲
-    private val catchupBuffer = 2 * 60 * 1000L // 回放节目前后各加2分钟
-    
-    // 按键步长
+    // 按键步长（毫秒）
     private val rewindStepShort = 30 * 1000L // 按一次左键：回退30秒
-    private val rewindStepLong = 60 * 1000L // 长按左键：每次60秒
+    private val rewindStepLong = 5 * 60 * 1000L // 长按左键：每秒5分钟（时移模式）
     private val forwardStepShort = 60 * 1000L // 按一次右键：快进1分钟
-    private val forwardStepLong = 120 * 1000L // 长按右键：每次120秒
+    private val forwardStepLong = 5 * 60 * 1000L // 长按右键：每秒5分钟（时移模式）
+
+    // 回放模式遥控器长按检测：记录每种按键的首次按下时间
+    private var rewindFirstDownTime = 0L
+    private var forwardFirstDownTime = 0L
+    private val replayLongPressMs = 300 * 1000L // 回放模式长按：每次300秒
+
+    // 回放模式长按连续快退/快进
+    private var replayRewindRunnable: Runnable? = null
+    private var replayForwardRunnable: Runnable? = null
+    private var isReplayRewindContinuous = false
+    private var isReplayForwardContinuous = false
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -83,15 +83,54 @@ class PlaybackControlFragment : Fragment() {
         return binding.root
     }
 
+    // 长按检测（统一遥控器和触摸）
+    private val LONG_PRESS_MS = 500L
+    private var rewindLongPressRunnable: Runnable? = null
+    private var forwardLongPressRunnable: Runnable? = null
+    private var isRewindContinuous = false
+    private var isForwardContinuous = false
+    private val continuousRunnable = object : Runnable {
+        override fun run() {
+            if (isRewindContinuous) {
+                rewind(rewindStepLong)
+                handler.postDelayed(this, 1000)
+            } else if (isForwardContinuous) {
+                forward(forwardStepLong)
+                handler.postDelayed(this, 1000)
+            }
+        }
+    }
+
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        binding.btnRewind.setOnClickListener {
-            rewind(rewindStepShort) // 按一次：回退30秒
+        // 触摸屏：使用 OnTouchListener 处理按钮
+        binding.btnRewind.setOnTouchListener { _, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    scheduleLongPress(isRewind = true)
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    cancelLongPress(isRewind = true)
+                    true
+                }
+                else -> false
+            }
         }
 
-        binding.btnForward.setOnClickListener {
-            forward(forwardStepShort) // 按一次：快进1分钟
+        binding.btnForward.setOnTouchListener { _, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    scheduleLongPress(isRewind = false)
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    cancelLongPress(isRewind = false)
+                    true
+                }
+                else -> false
+            }
         }
 
         binding.btnPlayPause.setOnClickListener {
@@ -109,47 +148,230 @@ class PlaybackControlFragment : Fragment() {
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
         })
 
-        // 设置按钮长按监听
-        binding.btnRewind.setOnLongClickListener {
-            startContinuousRewind()
-            true
-        }
-
-        binding.btnForward.setOnLongClickListener {
-            startContinuousForward()
-            true
-        }
-
-        binding.btnRewind.setOnKeyListener { _, keyCode, event ->
-            if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) {
-                if (event.action == KeyEvent.ACTION_UP) {
-                    stopContinuousSeek()
-                }
-            }
-            false
-        }
-
-        binding.btnForward.setOnKeyListener { _, keyCode, event ->
-            if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) {
-                if (event.action == KeyEvent.ACTION_UP) {
-                    stopContinuousSeek()
-                }
-            }
-            false
-        }
-
         updateHint()
         (activity as MainActivity).ready(TAG)
+    }
+
+    /**
+     * 遥控器按键按下（由 MainActivity.onKeyDown 调用）
+     * 回放模式：注册按下时间，松开时判断短按/长按
+     * 时移模式：注册长按检测，短按 30秒/60秒，长按每秒 5分钟
+     * @param justShown 右键刚显示播控界面时为 true，此时第一次右键只显示界面不触发快进
+     */
+    fun handleKeyEvent(keyCode: Int, event: KeyEvent?, justShown: Boolean = false): Boolean {
+        when (keyCode) {
+            KeyEvent.KEYCODE_DPAD_LEFT -> {
+                if (isCatchupMode) {
+                    // 回放模式：记录按下时间，注册长按检测
+                    if (event?.repeatCount ?: 0 == 0) {
+                        rewindFirstDownTime = System.currentTimeMillis()
+                        scheduleReplayLongPress(isRewind = true)
+                    }
+                    // 不要在这里执行 rewind()！由 handleKeyUp 根据按压时长决定
+                } else {
+                    // 时移模式：长按检测，短按 30秒
+                    if (event?.repeatCount ?: 0 > 0) return true // 吞掉 auto-repeat，触摸处理长按
+                    scheduleLongPress(isRewind = true)
+                }
+                return true
+            }
+            KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                // 刚显示播控时，第一次右键只显示界面，不触发快进
+                if (justShown) {
+                    Log.i(TAG, "播控刚显示，忽略首次右键快进")
+                    return true
+                }
+                if (isCatchupMode) {
+                    // 回放模式：记录按下时间，注册长按检测
+                    if (event?.repeatCount ?: 0 == 0) {
+                        forwardFirstDownTime = System.currentTimeMillis()
+                        scheduleReplayLongPress(isRewind = false)
+                    }
+                    // 不要在这里执行 forward()！由 handleKeyUp 根据按压时长决定
+                } else {
+                    // 时移模式：长按检测，短按 60秒
+                    if (event?.repeatCount ?: 0 > 0) return true
+                    scheduleLongPress(isRewind = false)
+                }
+                return true
+            }
+            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
+                togglePlayPause()
+                return true
+            }
+        }
+        return false
+    }
+
+    /**
+     * 遥控器按键松开（由 MainActivity.onKeyUp 调用）
+     * 时移模式：检测短按/长按，决定是否停止连续快退/快进
+     * 回放模式：检测短按/长按，短按退30秒/进60秒，长按停止连续执行
+     */
+    fun handleKeyUp(keyCode: Int): Boolean {
+        when (keyCode) {
+            KeyEvent.KEYCODE_DPAD_LEFT -> {
+                if (isCatchupMode) {
+                    // 取消长按检测 runnable
+                    replayRewindRunnable?.let { handler.removeCallbacks(it) }
+                    replayRewindRunnable = null
+                    val elapsed = System.currentTimeMillis() - rewindFirstDownTime
+                    if (isReplayRewindContinuous) {
+                        // 长按松开：停止连续快退
+                        isReplayRewindContinuous = false
+                        Log.i(TAG, "回放模式长按快退停止")
+                    } else if (elapsed < LONG_PRESS_MS) {
+                        // 短按：退 30秒
+                        rewind(rewindStepShort)
+                    }
+                } else {
+                    cancelLongPress(isRewind = true)
+                }
+                return true
+            }
+            KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                if (isCatchupMode) {
+                    // 取消长按检测 runnable
+                    replayForwardRunnable?.let { handler.removeCallbacks(it) }
+                    replayForwardRunnable = null
+                    val elapsed = System.currentTimeMillis() - forwardFirstDownTime
+                    if (isReplayForwardContinuous) {
+                        // 长按松开：停止连续快进
+                        isReplayForwardContinuous = false
+                        Log.i(TAG, "回放模式长按快进停止")
+                    } else if (elapsed < LONG_PRESS_MS) {
+                        // 短按：进 60秒
+                        forward(forwardStepShort)
+                    }
+                } else {
+                    cancelLongPress(isRewind = false)
+                }
+                return true
+            }
+        }
+        return false
+    }
+
+    /**
+     * 按下时：注册长按检测，500ms 后开始连续快退/快进
+     */
+    private fun scheduleLongPress(isRewind: Boolean) {
+        // 取消旧的连续任务，防止旧 runnable 继续执行导致步长错乱
+        handler.removeCallbacks(continuousRunnable)
+        isRewindContinuous = false
+        isForwardContinuous = false
+        
+        val runnable = Runnable {
+            if (isRewind) {
+                isRewindContinuous = true
+                Log.i(TAG, "长按快退开始")
+            } else {
+                isForwardContinuous = true
+                Log.i(TAG, "长按快进开始")
+            }
+            handler.post(continuousRunnable)
+        }
+        if (isRewind) {
+            rewindLongPressRunnable = runnable
+        } else {
+            forwardLongPressRunnable = runnable
+        }
+        handler.postDelayed(runnable, LONG_PRESS_MS)
+    }
+
+    /**
+     * 松开时：如果还没进入长按模式则执行单击，否则停止连续快退/快进
+     */
+    private fun cancelLongPress(isRewind: Boolean) {
+        if (isRewind) {
+            rewindLongPressRunnable?.let { handler.removeCallbacks(it) }
+            rewindLongPressRunnable = null
+        } else {
+            forwardLongPressRunnable?.let { handler.removeCallbacks(it) }
+            forwardLongPressRunnable = null
+        }
+
+        if (isRewindContinuous) {
+            // 长按松开：停止连续快退
+            isRewindContinuous = false
+            handler.removeCallbacks(continuousRunnable)
+            Log.i(TAG, "长按快退停止")
+        } else if (isForwardContinuous) {
+            // 长按松开：停止连续快进
+            isForwardContinuous = false
+            handler.removeCallbacks(continuousRunnable)
+            Log.i(TAG, "长按快进停止")
+        } else {
+            // 短按（< 500ms）：执行单次操作
+            if (isRewind) {
+                rewind(rewindStepShort)
+            } else {
+                forward(forwardStepShort)
+            }
+        }
+    }
+
+    /**
+     * 回放模式长按检测：500ms 后开始连续快退/快进（每次 300秒）
+     */
+    private fun scheduleReplayLongPress(isRewind: Boolean) {
+        // 取消旧的
+        handler.removeCallbacks(replayRewindRunnable ?: Runnable {})
+        handler.removeCallbacks(replayForwardRunnable ?: Runnable {})
+        isReplayRewindContinuous = false
+        isReplayForwardContinuous = false
+
+        val continuous = Runnable {
+            // 先标记为连续模式，确保 handleKeyUp 检测时能正确判断
+            if (isRewind) {
+                isReplayRewindContinuous = true
+                Log.i(TAG, "回放模式长按快退开始")
+            } else {
+                isReplayForwardContinuous = true
+                Log.i(TAG, "回放模式长按快进开始")
+            }
+
+            // 立即执行第一次跳转
+            if (isRewind) {
+                rewind(replayLongPressMs)
+            } else {
+                forward(replayLongPressMs)
+            }
+
+            // 之后每秒执行一次
+            lateinit var rep: Runnable
+            rep = Runnable {
+                if (isRewind && isReplayRewindContinuous) {
+                    rewind(replayLongPressMs)
+                    handler.postDelayed(rep, 1000)
+                } else if (!isRewind && isReplayForwardContinuous) {
+                    forward(replayLongPressMs)
+                    handler.postDelayed(rep, 1000)
+                }
+            }
+            handler.postDelayed(rep, 1000)
+        }
+
+        if (isRewind) {
+            replayRewindRunnable = continuous
+        } else {
+            replayForwardRunnable = continuous
+        }
+        handler.postDelayed(continuous, LONG_PRESS_MS)
     }
 
     fun setPlayerFragment(fragment: PlayerFragment) {
         this.playerFragment = fragment
     }
 
+    /**
+     * 设置当前的 TVModel
+     * 换台时重置 rewindSeconds 和 timeShiftStartPosition
+     * 右键打开播控时，如果有 rewindSeconds > 0，重新计算 timeShiftStartPosition
+     */
     fun setTVModel(model: TVModel) {
         this.tvModel = model
         isCatchupMode = model.isInCatchupMode
-        isInTimeShiftMode = false // 重置时移模式
         
         if (isCatchupMode) {
             // 回放模式：记录节目时间范围
@@ -157,9 +379,23 @@ class PlaybackControlFragment : Fragment() {
                 catchupStartTime = epg.beginTime.toLong() * 1000
                 catchupEndTime = epg.endTime.toLong() * 1000
             }
+        } else {
+            // 时移模式：右键打开播控时，如果有 rewindSeconds > 0，重新计算 seekTime
+            if (rewindSeconds > 0) {
+                // 时移模式不需要在这里处理，由 rewind/forward 方法处理
+            }
         }
         
+        Log.i(TAG, "setTVModel: isCatchupMode=$isCatchupMode, rewindSeconds=$rewindSeconds")
         updateUI()
+    }
+    
+    /**
+     * 换台时调用，重置时移状态
+     */
+    fun resetTimeShift() {
+        rewindSeconds = 0
+        Log.i(TAG, "resetTimeShift: rewindSeconds=$rewindSeconds")
     }
 
     private fun updateUI() {
@@ -181,39 +417,27 @@ class PlaybackControlFragment : Fragment() {
     }
 
     private fun updateProgress() {
-        val player = playerFragment?.getPlayer() ?: return
-        val playerDuration = player.duration
-        val position = player.currentPosition
-
-        Log.d(TAG, "updateProgress: playerDuration=$playerDuration, position=$position, isCatchupMode=$isCatchupMode, isInTimeShiftMode=$isInTimeShiftMode")
-
         activity?.runOnUiThread {
-            if (isCatchupMode || isInTimeShiftMode) {
-                // 回放/时移模式：使用播放器的实际时间
+            if (isCatchupMode) {
+                // 回放模式
+                val player = playerFragment?.getPlayer() ?: return@runOnUiThread
+                val playerDuration = player.duration
+                val position = player.currentPosition
                 if (playerDuration <= 0) return@runOnUiThread
                 val progress = ((position.toDouble() / playerDuration) * 1000).toInt()
                 binding.seekbar.progress = progress
                 binding.timeCurrent.text = formatTime(position)
                 binding.timeDuration.text = formatTime(playerDuration)
-                
-                // 显示时移模式标识
-                if (isInTimeShiftMode) {
-                    val offsetSeconds = (System.currentTimeMillis() / 1000 - timeShiftStartPosition).toInt()
-                    binding.programTitle.text = "时移 -${formatTime(offsetSeconds * 1000L)}"
-                }
-                
-                Log.d(TAG, "回放/时移时间轴: position=${position/1000}秒, duration=${playerDuration/1000}秒, progress=$progress")
             } else {
-                // 直播模式：时间轴为 NOW左侧90分钟（可回退），右侧5分钟（缓冲）
-                // 显示格式：左侧 "-90:00"，右侧 "LIVE"
-                binding.seekbar.progress = 1000 // 当前在 LIVE 位置
+                // 时移/直播模式
+                // 进度：rewindSeconds=0时在右侧(LIVE)，rewindSeconds=max时在左侧(90分钟前)
                 binding.seekbar.max = 1000
-                
-                // 时间显示：显示最大可回退时间
-                binding.timeCurrent.text = "-${formatTime(maxLiveRewind)}" // -90:00
+                val progress = (((maxRewindSeconds - rewindSeconds).toDouble() / maxRewindSeconds) * 1000).toInt().coerceIn(0, 1000)
+                binding.seekbar.progress = progress
+                // 左侧显示-90分钟（最大回退），右侧显示LIVE
+                binding.timeCurrent.text = "-${formatTime(maxRewindSeconds * 1000L)}"
                 binding.timeDuration.text = "LIVE"
-                
-                Log.d(TAG, "直播时间轴: 可回退${maxLiveRewind/60000}分钟")
+                binding.programTitle.text = if (rewindSeconds > 0) "时移 -${formatTime(rewindSeconds * 1000L)}" else "直播"
             }
         }
     }
@@ -233,36 +457,20 @@ class PlaybackControlFragment : Fragment() {
         val player = playerFragment?.getPlayer() ?: return
         
         if (isCatchupMode) {
-            // 回放模式：正常快退
-            var newPosition = player.currentPosition - ms
-            newPosition = Math.max(newPosition, 0)
+            // 回放模式：快退，限制不能超过节目开始时间
+            val currentPosition = player.currentPosition
+            var newPosition = currentPosition - ms
+            newPosition = Math.max(newPosition, catchupStartTime)
             player.seekTo(newPosition)
-            Log.d(TAG, "回放快退: ${player.currentPosition} -> $newPosition")
         } else {
-            // 直播/时移模式：需要通过时移 URL 实现
-            val now = System.currentTimeMillis() / 1000
-            val maxRewindSeconds = maxLiveRewind / 1000 // 90分钟
+            // 时移模式：使用 startTimeShift
+            rewindSeconds += ms / 1000
+            rewindSeconds = Math.min(rewindSeconds, maxRewindSeconds)
             
-            if (!isInTimeShiftMode) {
-                // 第一次回退，计算时移开始时间
-                val newStartTime = now - ms / 1000
-                // 限制不能回退超过最大时间
-                timeShiftStartPosition = Math.max(newStartTime, now - maxRewindSeconds)
-                isInTimeShiftMode = true
-                Log.d(TAG, "切换到时移模式: startTime=$timeShiftStartPosition, 回退 ${(now - timeShiftStartPosition)} 秒")
-                
-                // 请求时移 URL
-                (activity as? MainActivity)?.startTimeShift(timeShiftStartPosition)
-            } else {
-                // 已经在时移模式，继续回退
-                val newStartTime = timeShiftStartPosition - ms / 1000
-                // 限制不能回退超过最大时间
-                timeShiftStartPosition = Math.max(newStartTime, now - maxRewindSeconds)
-                Log.d(TAG, "时移快退: 新startTime=$timeShiftStartPosition, 回退 ${ms/1000} 秒")
-                
-                // 请求新的时移 URL
-                (activity as? MainActivity)?.startTimeShift(timeShiftStartPosition)
-            }
+            val now = System.currentTimeMillis() / 1000
+            val seekTime = now - rewindSeconds
+            Log.i(TAG, "时移后退: rewindSeconds=$rewindSeconds, seekTime=$seekTime")
+            (activity as? MainActivity)?.startTimeShift(seekTime)
         }
         updateProgress()
     }
@@ -271,54 +479,35 @@ class PlaybackControlFragment : Fragment() {
         val player = playerFragment?.getPlayer() ?: return
         
         if (isCatchupMode) {
-            // 回放模式：正常快进
-            var newPosition = player.currentPosition + ms
-            newPosition = Math.min(newPosition, player.duration)
-            player.seekTo(newPosition)
-            Log.d(TAG, "回放快进: ${player.currentPosition} -> $newPosition")
-        } else if (isInTimeShiftMode) {
-            // 时移模式快进：只能在已缓冲的内容范围内快进
+            // 回放模式：快进，限制不能超过节目结束时间
             val currentPosition = player.currentPosition
-            val duration = player.duration
             var newPosition = currentPosition + ms
-            // 不能超过缓冲范围（即当前直播点）
-            newPosition = Math.min(newPosition, duration)
+            newPosition = Math.min(newPosition, catchupEndTime)
             player.seekTo(newPosition)
-            Log.d(TAG, "时移快进: $currentPosition -> $newPosition (max=$duration)")
         } else {
-            // 直播模式（未回退）：不能快进
-            Log.d(TAG, "直播模式：当前已是最新，无法快进")
+            // 时移模式：向NOW靠近
+            rewindSeconds -= ms / 1000
+            if (rewindSeconds <= 0) {
+                rewindSeconds = 0
+                Log.i(TAG, "时移回到直播")
+                (activity as? MainActivity)?.exitCatchupMode()
+            } else {
+                val now = System.currentTimeMillis() / 1000
+                val seekTime = now - rewindSeconds
+                Log.i(TAG, "时移快进: rewindSeconds=$rewindSeconds, seekTime=$seekTime")
+                (activity as? MainActivity)?.startTimeShift(seekTime)
+            }
         }
         updateProgress()
     }
 
-    private fun startContinuousRewind() {
-        isRewinding = true
-        handler.post(object : Runnable {
-            override fun run() {
-                if (isRewinding) {
-                    rewind(rewindStepLong) // 长按每次60秒
-                    handler.postDelayed(this, 1000) // 每秒触发一次，即每秒回退1分钟
-                }
-            }
-        })
-    }
-
-    private fun startContinuousForward() {
-        isForwarding = true
-        handler.post(object : Runnable {
-            override fun run() {
-                if (isForwarding) {
-                    forward(forwardStepLong) // 长按每次120秒
-                    handler.postDelayed(this, 1000) // 每秒触发一次
-                }
-            }
-        })
-    }
-
-    private fun stopContinuousSeek() {
-        isRewinding = false
-        isForwarding = false
+    private fun updateHint() {
+        val hint = if (isCatchupMode) {
+            "回放模式 | ←30秒 →1分钟 | 长按加速"
+        } else {
+            "直播模式 | ←30秒 →1分钟 | 长按加速"
+        }
+        binding.hint.text = hint
     }
 
     private fun togglePlayPause() {
@@ -333,51 +522,31 @@ class PlaybackControlFragment : Fragment() {
     }
 
     private fun seekToProgress(progress: Int) {
-        val player = playerFragment?.getPlayer() ?: return
-        
         if (isCatchupMode) {
-            // 回放模式：直接按进度条比例跳转（恢复到2041版本）
+            val player = playerFragment?.getPlayer() ?: return
             val duration = player.duration
             if (duration > 0) {
                 val position = (duration * progress / 1000.0).toLong()
                 player.seekTo(position)
-                Log.d(TAG, "回放 seekToProgress: progress=$progress, position=$position")
             }
         } else {
-            // 直播模式：暂不支持拖动
-            Log.d(TAG, "直播 seekToProgress: progress=$progress (暂不支持拖动)")
-        }
-    }
-
-    fun handleKey(keyCode: Int): Boolean {
-        Log.d(TAG, "handleKey: keyCode=$keyCode, isCatchupMode=$isCatchupMode")
-        when (keyCode) {
-            KeyEvent.KEYCODE_DPAD_LEFT -> {
-                rewind(rewindStepShort) // 左键一次：回退30秒
-                return true
-            }
-            KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                forward(forwardStepShort) // 右键一次：快进1分钟
-                return true
-            }
-            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
-                togglePlayPause()
-                return true
+            // 时移模式：拖动进度条
+            // progress=1000在最右侧(LIVE)，progress=0在最左侧(90分钟前)
+            rewindSeconds = ((1000 - progress).toDouble() / 1000.0 * maxRewindSeconds).toLong()
+            
+            if (rewindSeconds > 0) {
+                val now = System.currentTimeMillis() / 1000
+                val seekTime = now - rewindSeconds
+                (activity as? MainActivity)?.startTimeShift(seekTime)
+            } else {
+                (activity as? MainActivity)?.exitCatchupMode()
             }
         }
-        return false
-    }
-
-    private fun updateHint() {
-        val hint = if (isCatchupMode) {
-            "回放模式 | 左键-30秒 | 右键+1分钟 | 长按加速"
-        } else {
-            "直播模式 | 左键-30秒 | 右键+1分钟 | 长按加速"
-        }
-        binding.hint.text = hint
     }
 
     fun isCatchup(): Boolean = isCatchupMode
+    fun isTimeShift(): Boolean = !isCatchupMode && rewindSeconds > 0
+    fun isLive(): Boolean = !isCatchupMode && rewindSeconds == 0L
 
     override fun onResume() {
         super.onResume()
