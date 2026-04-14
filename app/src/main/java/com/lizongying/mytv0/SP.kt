@@ -61,6 +61,8 @@ object SP {
     private const val KEY_SOFT_DECODE = "soft_decode"
 
     private const val KEY_EPG_LAST_UPDATE_DATE = "epg_last_update_date"
+    
+    private const val KEY_EPG_CACHE_TIMESTAMP = "epg_cache_timestamp" // EPG 缓存时间戳（毫秒）
 
     const val DEFAULT_CHANNEL_REVERSAL = false
     const val DEFAULT_CHANNEL_NUM = false
@@ -222,4 +224,18 @@ object SP {
     var epgLastUpdateDate: String?
         get() = sp.getString(KEY_EPG_LAST_UPDATE_DATE, "")
         set(value) = sp.edit().putString(KEY_EPG_LAST_UPDATE_DATE, value).apply()
+    
+    // EPG 缓存时间戳（毫秒），用于判断缓存是否过期（7天）
+    var epgCacheTimestamp: Long
+        get() = sp.getLong(KEY_EPG_CACHE_TIMESTAMP, 0L)
+        set(value) = sp.edit().putLong(KEY_EPG_CACHE_TIMESTAMP, value).apply()
+    
+    // EPG 缓存是否过期（7天）
+    fun isEpgCacheExpired(): Boolean {
+        val cacheTime = epgCacheTimestamp
+        if (cacheTime == 0L) return true // 无缓存，视为过期
+        val now = System.currentTimeMillis()
+        val sevenDaysMs = 7 * 24 * 60 * 60 * 1000L
+        return (now - cacheTime) > sevenDaysMs
+    }
 }

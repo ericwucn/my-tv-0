@@ -19,6 +19,7 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.PopupWindow
 import android.widget.RelativeLayout
+import androidx.lifecycle.Observer
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -464,7 +465,7 @@ class MainActivity : AppCompatActivity() {
         Log.i(TAG, "startTimeShift: seekTime=$seekTime, catchupSource=$catchupSource")
         
         // 注意：不设置 isInCatchupMode，这是时移模式，不是回放模式
-        // 时移模式由 PlaybackControlFragment 的 isInTimeShiftMode 控制
+        // 时移状态由 PlaybackControlFragment 的 rewindSeconds 控制
         
         // 保存原始直播 URL（如果还没保存）
         if (tvModel.catchupOriginalUris == null) {
@@ -475,12 +476,13 @@ class MainActivity : AppCompatActivity() {
         val timeShiftUrl = buildCatchupUrl(tvModel.tv.uris.firstOrNull() ?: "", catchupSource, seekTime)
         Log.i(TAG, "时移URL: $timeShiftUrl")
         
-        // 更新播放器（使用 playCatchup 方法播放时移流）
+        // 使用 playCatchup 直接播放时移 URL
         playerFragment.playCatchup(tvModel, timeShiftUrl)
     }
 
     fun prev() {
         exitCatchupMode()
+        playbackControlFragment.resetTimeShift()
         val prevGroup = viewModel.groupModel.positionValue
         val tvModel =
             if (SP.defaultLike && viewModel.groupModel.isInLikeMode && viewModel.groupModel.getFavoritesList() != null) {
@@ -499,6 +501,7 @@ class MainActivity : AppCompatActivity() {
 
     fun next() {
         exitCatchupMode()
+        playbackControlFragment.resetTimeShift()
         val prevGroup = viewModel.groupModel.positionValue
         val tvModel =
             if (SP.defaultLike && viewModel.groupModel.isInLikeMode && viewModel.groupModel.getFavoritesList() != null) {
@@ -598,24 +601,30 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun back() {
-        // 播放控制界面显示中
+        // 播放控制界面显示中 → 直接退出播控界面
         if (playbackControlFragment.isAdded && !playbackControlFragment.isHidden) {
-            // 回放模式下需要确认退出
-            if (playbackControlFragment.isCatchup()) {
-                showCatchupExitConfirm()
-            } else {
-                hidePlaybackControl()
-            }
+            hidePlaybackControl()
             return
         }
         if (menuFragment.isAdded && !menuFragment.isHidden) { hideFragment(menuFragment); return }
         if (programFragment.isAdded && !programFragment.isHidden) { hideFragment(programFragment); return }
         if (settingFragment.isAdded && !settingFragment.isHidden) { hideFragment(settingFragment); showTimeFragment(); return }
         if (channelFragment.isAdded && channelFragment.isVisible) { channelFragment.hideSelf(); return }
-        if (doubleBackToExitPressedOnce) { super.onBackPressed(); return }
-        doubleBackToExitPressedOnce = true
-        R.string.press_again_to_exit.showToast()
-        Handler(Looper.getMainLooper()).postDelayed({ doubleBackToExitPressedOnce = false }, 2000)
+
+        // 无播控界面时，根据当前模式处理返回键
+        if (playbackControlFragment.isTimeShift()) {
+            // 时移模式：提示退出时移，回退到直播
+            showTimeShiftExitConfirm()
+        } else if (playbackControlFragment.isCatchup()) {
+            // 回放模式：提示退出回放，回退到直播
+            showCatchupExitConfirm()
+        } else {
+            // 直播模式：双击退出 APK
+            if (doubleBackToExitPressedOnce) { super.onBackPressed(); return }
+            doubleBackToExitPressedOnce = true
+            R.string.press_again_to_exit.showToast()
+            Handler(Looper.getMainLooper()).postDelayed({ doubleBackToExitPressedOnce = false }, 2000)
+        }
     }
 
     /**
@@ -627,7 +636,10 @@ class MainActivity : AppCompatActivity() {
         builder.setMessage(R.string.confirm_exit_catchup)
         builder.setPositiveButton(R.string.confirm) { _, _ ->
             exitCatchupMode()
-            hidePlaybackControl()
+            // 只有播控界面显示时才隐藏
+            if (playbackControlFragment.isAdded && !playbackControlFragment.isHidden) {
+                hidePlaybackControl()
+            }
         }
         builder.setNegativeButton(R.string.cancel) { dialog, _ ->
             dialog.dismiss()
@@ -636,10 +648,43 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
+     * 显示退出时移确认对话框
+     */
+    private fun showTimeShiftExitConfirm() {
+        val builder = androidx.appcompat.app.AlertDialog.Builder(this)
+        builder.setTitle("退出时移")
+        builder.setMessage("确定退出时移模式，返回直播？")
+        builder.setPositiveButton(R.string.confirm) { _, _ ->
+            exitTimeShiftMode()
+        }
+        builder.setNegativeButton(R.string.cancel) { dialog, _ ->
+            dialog.dismiss()
+        }
+        builder.show()
+    }
+
+    /**
+     * 退出时移模式，返回直播
+     */
+    private fun exitTimeShiftMode() {
+        playbackControlFragment.resetTimeShift()
+        val tvModel = viewModel.groupModel.getCurrent() ?: return
+
+        // 恢复原始直播流 URL
+        tvModel.catchupOriginalUris?.let { originalUris ->
+            tvModel.tv = tvModel.tv.copy(uris = originalUris)
+            tvModel.catchupOriginalUris = null
+            tvModel.setReady()
+            Log.i(TAG, "exitTimeShiftMode: restored to live stream")
+        }
+    }
+
+    /**
      * 从直播模式切换到回放模式
      * @param seekTime 回看开始时间（Unix 时间戳，秒）
+     * @param endTime 回看结束时间（Unix 时间戳，秒），如果为0则使用直播结束时间
      */
-    fun startCatchupFromLive(seekTime: Long) {
+    fun startCatchupFromLive(seekTime: Long, endTime: Long = 0L) {
         val tvModel = viewModel.groupModel.getCurrent() ?: return
         val catchupSource = tvModel.tv.catchupSource
         
@@ -649,14 +694,14 @@ class MainActivity : AppCompatActivity() {
             return
         }
         
-        Log.i(TAG, "从直播切换到回放: seekTime=$seekTime, catchupSource=$catchupSource")
+        Log.i(TAG, "从直播切换到回放: seekTime=$seekTime, endTime=$endTime")
         
         // 标记进入回放模式
         tvModel.isInCatchupMode = true
         
-        // 构建回看 URL
+        // 构建回看 URL（带结束时间）
         val baseUrl = tvModel.tv.uris.firstOrNull() ?: ""
-        val catchupUrl = buildCatchupUrl(baseUrl, catchupSource, seekTime)
+        val catchupUrl = buildCatchupUrlWithEnd(baseUrl, catchupSource, seekTime, endTime)
         Log.i(TAG, "回放URL: $catchupUrl")
         
         // 更新播放器
@@ -697,6 +742,54 @@ class MainActivity : AppCompatActivity() {
             else -> baseUrl + "?" + result
         }
     }
+    
+    /**
+     * 构建回看 URL（带结束时间）
+     */
+    private fun buildCatchupUrlWithEnd(baseUrl: String, catchupSource: String, beginTime: Long, endTime: Long): String {
+        var result = catchupSource
+        val beginDate = Date(beginTime * 1000)
+        val endDate = Date(endTime * 1000)
+        
+        // 替换 ${(b)format} 和 ${(e)format}
+        result = Regex("""\$\{(\([be]\))([^}]+)\}""").replace(result) { match ->
+            val type = match.groupValues[1]
+            val format = match.groupValues[2]
+            val date = if (type == "(b)") beginDate else endDate
+            try {
+                SimpleDateFormat(format, Locale.getDefault()).format(date)
+            } catch (e: Exception) {
+                match.value
+            }
+        }
+        
+        // 替换 (b)format 和 (e)format
+        result = Regex("""\(([be])\)([a-zA-Z0-9]+)""").replace(result) { match ->
+            val type = match.groupValues[1]
+            val format = match.groupValues[2]
+            val date = if (type == "b") beginDate else endDate
+            try {
+                SimpleDateFormat(format, Locale.getDefault()).format(date)
+            } catch (e: Exception) {
+                match.value
+            }
+        }
+        
+        // 替换 {start} 和 {end}
+        result = result.replace("{start}", beginTime.toString())
+        result = result.replace("{end}", endTime.toString())
+        
+        // 替换 {timestamp}
+        result = result.replace("{timestamp}", beginTime.toString())
+        
+        // 拼接 URL
+        return when {
+            baseUrl.contains("?") && result.startsWith("?") -> baseUrl + "&" + result.substring(1)
+            baseUrl.contains("?") -> baseUrl + "&" + result
+            result.startsWith("?") -> baseUrl + result
+            else -> baseUrl + "?" + result
+        }
+    }
 
     private fun showSetting() {
         if (programFragment.isAdded && !programFragment.isHidden) return
@@ -708,12 +801,32 @@ class MainActivity : AppCompatActivity() {
     private fun showProgram() {
         if (menuFragment.isAdded && !menuFragment.isHidden) return
         if (settingFragment.isAdded && !settingFragment.isHidden) return
-        viewModel.groupModel.getCurrent()?.let {
-            if (it.epgValue.isEmpty()) {
-                R.string.epg_is_empty.showToast()
-                return
-            }
+        
+        val tvModel = viewModel.groupModel.getCurrent()
+        if (tvModel == null) {
+            R.string.epg_is_empty.showToast()
+            return
         }
+        
+        // 检查当前频道的 EPG 是否为空
+        if (tvModel.epgValue.isEmpty()) {
+            // 检查是否有全局 EPG 数据（任意频道有 EPG 则说明 EPG 已加载）
+            val hasAnyEpg = viewModel.listModel.any { it.epgValue.isNotEmpty() }
+            
+            if (!hasAnyEpg) {
+                // 没有 EPG 信息（全局 EPG 为空或未加载），直接更新
+                Log.i(TAG, "EPG 未加载，立即更新")
+                R.string.epg_updating.showToast()
+                viewModel.updateEPG()
+                return
+            } else {
+                // 有 EPG 数据但此频道没有，提示"此频道无EPG"
+                Log.i(TAG, "频道 ${tvModel.tv.title} 无 EPG 信息")
+                "${tvModel.tv.title} 暂无节目单".showToast()
+            }
+            return
+        }
+        
         showFragment(programFragment)
     }
 
@@ -767,19 +880,11 @@ class MainActivity : AppCompatActivity() {
             KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_CHANNEL_UP -> channelUp()
             KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_CHANNEL_DOWN -> channelDown()
             KeyEvent.KEYCODE_DPAD_LEFT -> {
-                // 如果播放控制界面显示中，传递给播放控制
-                if (playbackControlFragment.isAdded && !playbackControlFragment.isHidden) {
-                    playbackControlFragment.handleKey(keyCode)
-                    return true
-                }
                 showProgram()
             }
             KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                // 如果播放控制界面显示中，传递给播放控制
-                if (playbackControlFragment.isAdded && !playbackControlFragment.isHidden) {
-                    playbackControlFragment.handleKey(keyCode)
-                    return true
-                }
+                // 播控刚显示后，第一次右键可能 pendingJustShown=true，需要重置
+                pendingJustShown = false
                 showPlaybackControl()
             }
         }
@@ -807,6 +912,7 @@ class MainActivity : AppCompatActivity() {
      * 隐藏播放控制界面
      */
     private fun hidePlaybackControl() {
+        pendingJustShown = false
         hideFragment(playbackControlFragment)
     }
 
@@ -826,8 +932,31 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        // 右键显示播控时，先标记"刚显示"，让第一次右键只显示界面不触发快进
+        val wasHidden = playbackControlFragment.isAdded && playbackControlFragment.isHidden
+        if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && wasHidden) {
+            // 临时标记：onKey 会显示界面
+            pendingJustShown = true
+        }
+        // 在播控界面时，传递完整 KeyEvent 给 PlaybackControlFragment 处理长按
+        if (playbackControlFragment.isAdded && !playbackControlFragment.isHidden) {
+            if (playbackControlFragment.handleKeyEvent(keyCode, event, pendingJustShown)) {
+                pendingJustShown = false
+                return true
+            }
+        }
         if (onKey(keyCode)) return true
         return super.onKeyDown(keyCode, event)
+    }
+
+    private var pendingJustShown = false
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent?): Boolean {
+        // 在播控界面时，传递 keyUp 给 PlaybackControlFragment 检测长按松手
+        if (playbackControlFragment.isAdded && !playbackControlFragment.isHidden) {
+            if (playbackControlFragment.handleKeyUp(keyCode)) return true
+        }
+        return super.onKeyUp(keyCode, event)
     }
 
     override fun onResume() {
