@@ -548,6 +548,15 @@ class PlaybackControlFragment : Fragment() {
     fun isTimeShift(): Boolean = !isCatchupMode && rewindSeconds > 0
     fun isLive(): Boolean = !isCatchupMode && rewindSeconds == 0L
 
+    /**
+     * 获取当前回放节目的时间范围（秒），供 EPG 定位使用
+     */
+    fun getCatchupTimeRange(): Pair<Int, Int> {
+        val begin = if (catchupStartTime > 0) (catchupStartTime / 1000).toInt() else 0
+        val end = if (catchupEndTime > 0) (catchupEndTime / 1000).toInt() else 0
+        return Pair(begin, end)
+    }
+
     override fun onResume() {
         super.onResume()
         handler.post(updateProgressRunnable)

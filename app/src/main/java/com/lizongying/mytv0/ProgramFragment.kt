@@ -26,10 +26,14 @@ class ProgramFragment : Fragment(), ProgramAdapter.ItemListener {
     private lateinit var programAdapter: ProgramAdapter
 
     private lateinit var viewModel: MainViewModel
-    
+
     // 回放模式时记录选择的节目信息
     private var playbackBeginTime: Int = 0
     private var playbackEndTime: Int = 0
+
+    // 外部传入的回放信息（优先于成员变量）
+    private var externalPlaybackBegin: Int = 0
+    private var externalPlaybackEnd: Int = 0
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -76,13 +80,14 @@ class ProgramFragment : Fragment(), ProgramAdapter.ItemListener {
             var targetPosition = 0
             
             if (tvModel.isInCatchupMode) {
-                // 回放模式：定位到回放节目的时间点
-                val playTimestamp = if (playbackBeginTime > 0) {
-                    playbackBeginTime.toLong()
+                // 回放模式：优先使用外部传入的回放时间，否则用 URL 解析
+                val playbackBegin = if (externalPlaybackBegin > 0) externalPlaybackBegin else playbackBeginTime
+                val playTimestamp = if (playbackBegin > 0) {
+                    playbackBegin.toLong()
                 } else {
                     parseTimestamp(tvModel.tv.uris.firstOrNull())
                 }
-                
+
                 if (playTimestamp > 0) {
                     targetPosition = epgList.indexOfFirst { epg ->
                         playTimestamp >= epg.beginTime && playTimestamp < epg.endTime
@@ -117,12 +122,30 @@ class ProgramFragment : Fragment(), ProgramAdapter.ItemListener {
     }
     
     /**
-     * 记录回放选择的节目信息
+     * 记录回放选择的节目信息（供外部调用）
      */
     fun recordPlaybackInfo(beginTime: Int, endTime: Int) {
         playbackBeginTime = beginTime
         playbackEndTime = endTime
         Log.i(TAG, "recordPlaybackInfo: beginTime=$beginTime, endTime=$endTime")
+    }
+
+    /**
+     * 设置外部回放信息（由 MainActivity 在显示 EPG 前调用）
+     * 优先级高于内部 recordPlaybackInfo
+     */
+    fun setExternalPlaybackInfo(beginTime: Int, endTime: Int) {
+        externalPlaybackBegin = beginTime
+        externalPlaybackEnd = endTime
+        Log.i(TAG, "setExternalPlaybackInfo: beginTime=$beginTime, endTime=$endTime")
+    }
+
+    /**
+     * 清空外部回放信息（使用后调用）
+     */
+    fun clearExternalPlaybackInfo() {
+        externalPlaybackBegin = 0
+        externalPlaybackEnd = 0
     }
     
     /**
@@ -148,6 +171,7 @@ class ProgramFragment : Fragment(), ProgramAdapter.ItemListener {
 
     fun onHidden() {
         handler.removeCallbacks(hideRunnable)
+        clearExternalPlaybackInfo()
     }
 
     override fun onHiddenChanged(hidden: Boolean) {

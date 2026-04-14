@@ -170,22 +170,19 @@ class ProgramAdapter(
     fun scrollToPositionAndSelect(position: Int, currentTimestamp: Long = 0) {
         val layoutManager = recyclerView.layoutManager as? LinearLayoutManager
         layoutManager?.let { lm ->
-            recyclerView.postDelayed({
-                // 获取 RecyclerView 的高度，计算中央偏移量
+            recyclerView.post {
                 val recyclerHeight = recyclerView.height
-                if (recyclerHeight > 0) {
-                    // 滚动到中央位置
-                    lm.scrollToPositionWithOffset(position, recyclerHeight / 2)
-                } else {
-                    lm.scrollToPositionWithOffset(position, 0)
+                val offset = if (recyclerHeight > 0) recyclerHeight / 2 else 0
+                lm.scrollToPositionWithOffset(position, offset)
+
+                recyclerView.post {
+                    val vh = recyclerView.findViewHolderForAdapterPosition(position)
+                    vh?.itemView?.apply {
+                        isSelected = true
+                        requestFocus()
+                    }
                 }
-                
-                val viewHolder = recyclerView.findViewHolderForAdapterPosition(position)
-                viewHolder?.itemView?.apply {
-                    isSelected = true
-                    requestFocus()
-                }
-            }, 50)
+            }
         }
     }
     

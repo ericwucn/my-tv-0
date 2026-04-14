@@ -827,6 +827,13 @@ class MainActivity : AppCompatActivity() {
             return
         }
         
+        // 回放模式：传入当前回放节目的时间范围，EPG 定位到该节目
+        if (playbackControlFragment.isCatchup()) {
+            val (beginTime, endTime) = playbackControlFragment.getCatchupTimeRange()
+            programFragment.setExternalPlaybackInfo(beginTime, endTime)
+            Log.i(TAG, "showProgram: 回放模式，传入回放时间 beginTime=$beginTime, endTime=$endTime")
+        }
+
         showFragment(programFragment)
     }
 
