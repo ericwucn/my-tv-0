@@ -38,18 +38,14 @@ jobs:
           # override default build-tools version (29.0.3) -- optional
           BUILD_TOOLS_VERSION: "34.0.0"
 
-      - name: Rename APK with timestamp
+      - name: Rename APK with version
         id: rename_apk
         run: |
-          # 获取版本号（从 tag 中提取，如 v1.5.1.8 -> 1.5.1.8）
+          # 获取版本号（tag 名称，如 v1.5.1.8）
           VERSION="${{ github.ref_name }}"
-          VERSION="${VERSION#v}"
           
-          # 获取当前时间戳 (MMDD-HHmm 格式，UTC+8)
-          TIMESTAMP=$(TZ='Asia/Shanghai' date +%m%d-%H%M)
-          
-          # 构建新文件名
-          NEW_NAME="my-tv-0_${VERSION}-${TIMESTAMP}.apk"
+          # 构建新文件名: my-tv-0-v1.5.1.8.apk
+          NEW_NAME="my-tv-0-${VERSION}.apk"
           
           # 重命名文件
           SIGNED_FILE="${{ steps.sign_app.outputs.signedReleaseFile }}"

@@ -55,10 +55,7 @@ class MainViewModel : ViewModel() {
 
     val sources = Sources()
 
-    init {
-        // 确保 kwrt100 源在列表第一个位置
-        sources.addDefaultSourceIfNotExists(KWRT100_CHANNELS_URL)
-    }
+
 
     private val _channelsOk = MutableLiveData<Boolean>()
     val channelsOk: LiveData<Boolean>
@@ -817,8 +814,7 @@ class MainViewModel : ViewModel() {
         // 默认视频源 URL（用于设置菜单中的视频源列表）
         const val DEFAULT_CHANNELS_URL = "https://lyrics.run/8.218.208.240/playlist.m3u"
         
-        // 【自选源】kwrt100 NAS 视频源（放在视频源列表第一个）
-        const val KWRT100_CHANNELS_URL = "https://kwrt100.diskstation.dynv6.net:5666/3.m3u"
+
         
         // 默认 EPG URL（用于默认视频源的节目指南）
         const val DEFAULT_EPG_URL = "http://e.erw.cc/all.xml.gz"
