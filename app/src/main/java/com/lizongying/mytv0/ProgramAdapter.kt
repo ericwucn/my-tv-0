@@ -84,6 +84,7 @@ class ProgramAdapter(
             if (event?.action == KeyEvent.ACTION_DOWN) {
                 if (keyCode == KeyEvent.KEYCODE_DPAD_UP && position == 0) {
                     val p = getItemCount() - 1
+                    recyclerView.stopScroll()
                     (recyclerView.layoutManager as? LinearLayoutManager)?.scrollToPositionWithOffset(p, 0)
                     recyclerView.postDelayed({
                         val v = recyclerView.findViewHolderForAdapterPosition(p)
@@ -93,6 +94,7 @@ class ProgramAdapter(
                 }
                 if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN && position == getItemCount() - 1) {
                     val p = 0
+                    recyclerView.stopScroll()
                     (recyclerView.layoutManager as? LinearLayoutManager)?.scrollToPositionWithOffset(p, 0)
                     recyclerView.postDelayed({
                         val v = recyclerView.findViewHolderForAdapterPosition(p)
