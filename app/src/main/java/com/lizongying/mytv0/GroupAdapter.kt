@@ -122,40 +122,45 @@ class GroupAdapter(
                 }, 500)
             }
             if (event?.action == KeyEvent.ACTION_DOWN) {
-
-                // If it is already the first item and you continue to move up...
-                if (keyCode == KeyEvent.KEYCODE_DPAD_UP && position == 0) {
-                    val p = getItemCount() - 1
-
-                    recyclerView.stopScroll()
-                    (recyclerView.layoutManager as? LinearLayoutManager)?.scrollToPositionWithOffset(
-                        p,
-                        0
-                    )
-
-                    recyclerView.postDelayed({
-                        val v = recyclerView.findViewHolderForAdapterPosition(p)
-                        v?.itemView?.isSelected = true
-                        v?.itemView?.requestFocus()
-                    }, 0)
-                }
-
-                // If it is the last item and you continue to move down...
-                if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN && position == getItemCount() - 1) {
-                    val p = 0
-
-                    recyclerView.stopScroll()
-                    (recyclerView.layoutManager as? LinearLayoutManager)?.scrollToPositionWithOffset(
-                        p,
-                        0
-                    )
-
-                    recyclerView.postDelayed({
-                        val v = recyclerView.findViewHolderForAdapterPosition(p)
-                        v?.itemView?.isSelected = true
-                        v?.itemView?.requestFocus()
-                    }, 0)
-                }
+                    Log.i(TAG, "key DOWN at group position $position, itemCount=${getItemCount()}")
+                    // If it is already the first item and you continue to move up...
+                    if (keyCode == KeyEvent.KEYCODE_DPAD_UP && position == 0) {
+                        val p = getItemCount() - 1
+                        Log.i(TAG, "wrap to last group $p")
+                        recyclerView.post {
+                            Log.i(TAG, "wrap post 1")
+                            recyclerView.stopScroll()
+                            (recyclerView.layoutManager as? LinearLayoutManager)?.scrollToPositionWithOffset(p, 0)
+                            Log.i(TAG, "wrap scroll done, posting focus")
+                            recyclerView.post {
+                                Log.i(TAG, "wrap post 2")
+                                val v = recyclerView.findViewHolderForAdapterPosition(p)
+                                Log.i(TAG, "holder at $p: $v")
+                                v?.itemView?.isSelected = true
+                                v?.itemView?.requestFocus()
+                                Log.i(TAG, "wrap focus done")
+                            }
+                        }
+                    }
+                    // If it is the last item and you continue to move down...
+                    if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN && position == getItemCount() - 1) {
+                        val p = 0
+                        Log.i(TAG, "wrap to first group $p")
+                        recyclerView.post {
+                            Log.i(TAG, "wrap post 1")
+                            recyclerView.stopScroll()
+                            (recyclerView.layoutManager as? LinearLayoutManager)?.scrollToPositionWithOffset(p, 0)
+                            Log.i(TAG, "wrap scroll done, posting focus")
+                            recyclerView.post {
+                                Log.i(TAG, "wrap post 2")
+                                val v = recyclerView.findViewHolderForAdapterPosition(p)
+                                Log.i(TAG, "holder at $p: $v")
+                                v?.itemView?.isSelected = true
+                                v?.itemView?.requestFocus()
+                                Log.i(TAG, "wrap focus done")
+                            }
+                        }
+                    }
 
                 return@setOnKeyListener listener?.onKey(keyCode) ?: false
             }
