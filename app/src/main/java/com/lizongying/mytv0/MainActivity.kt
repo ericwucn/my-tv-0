@@ -440,6 +440,9 @@ class MainActivity : AppCompatActivity() {
         val tvModel = viewModel.groupModel.getCurrent() ?: return
         if (!tvModel.isInCatchupMode) return
         
+        // 恢复直播模式的循环播放
+        playerFragment.resumeLiveMode()
+        
         tvModel.catchupOriginalUris?.let { originalUris ->
             tvModel.tv = tvModel.tv.copy(uris = originalUris)
             tvModel.isInCatchupMode = false

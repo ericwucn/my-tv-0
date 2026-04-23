@@ -198,6 +198,7 @@ class PlayerFragment : Fragment() {
 
     /**
      * 播放回看 URL
+     * 注意：回放模式禁用循环播放，防止快进到结尾后循环
      */
     @OptIn(UnstableApi::class)
     fun playCatchup(tvModel: TVModel, catchupUrl: String) {
@@ -208,11 +209,25 @@ class PlayerFragment : Fragment() {
             // 先停止当前播放，避免状态冲突
             stop()
             
+            // 清理旧媒体项，避免资源累积
+            clearMediaItems()
+            
+            // 回放模式禁用循环，防止快进后循环播放
+            repeatMode = Player.REPEAT_MODE_OFF
+            
             val mediaItem = MediaItem.fromUri(catchupUrl)
             setMediaItem(mediaItem)
             prepare()
             playWhenReady = true
         }
+    }
+    
+    /**
+     * 恢复直播模式（重新启用循环播放）
+     */
+    fun resumeLiveMode() {
+        player?.repeatMode = REPEAT_MODE_ALL
+        Log.i(TAG, "恢复直播模式，启用循环播放")
     }
 
     @OptIn(UnstableApi::class)
