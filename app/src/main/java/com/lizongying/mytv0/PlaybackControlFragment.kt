@@ -471,11 +471,19 @@ class PlaybackControlFragment : Fragment() {
             val newPosition = (currentPosition - ms).coerceAtLeast(0L)
             player.seekTo(newPosition)
         } else {
+<<<<<<< HEAD
             // Time-shift mode: check if enabled
+=======
+            // 时移模式：检查是否启用时移功能
+>>>>>>> 88cd213826ce64124d213b5161c057626f04c0cf
             if (!SP.enableTimeShift) {
                 Log.i(TAG, "时移功能已禁用")
                 return
             }
+<<<<<<< HEAD
+=======
+            // 使用 startTimeShift
+>>>>>>> 88cd213826ce64124d213b5161c057626f04c0cf
             rewindSeconds += ms / 1000
             rewindSeconds = rewindSeconds.coerceAtMost(maxRewindSeconds)
 
@@ -498,15 +506,28 @@ class PlaybackControlFragment : Fragment() {
             val newPosition = (currentPosition + ms).coerceAtMost(cap)
             player.seekTo(newPosition)
         } else {
+<<<<<<< HEAD
             // Time-shift mode: check if enabled
+=======
+            // 时移模式：检查是否启用时移功能
+>>>>>>> 88cd213826ce64124d213b5161c057626f04c0cf
             if (!SP.enableTimeShift) {
                 Log.i(TAG, "时移功能已禁用")
                 return
             }
+<<<<<<< HEAD
+=======
+            // 向NOW靠近
+>>>>>>> 88cd213826ce64124d213b5161c057626f04c0cf
             rewindSeconds -= ms / 1000
             if (rewindSeconds <= 0) {
                 rewindSeconds = 0
                 Log.i(TAG, "时移回到直播")
+<<<<<<< HEAD
+=======
+                // 修复：时移模式回到直播，需要恢复原始直播 URL 并重新播放
+                // exitCatchupMode() 只用于回放模式，时移模式需要直接恢复直播
+>>>>>>> 88cd213826ce64124d213b5161c057626f04c0cf
                 tvModel?.let { model ->
                     model.catchupOriginalUris?.let { originalUris ->
                         model.tv = model.tv.copy(uris = originalUris)
