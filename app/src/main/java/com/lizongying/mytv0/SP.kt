@@ -64,6 +64,8 @@ object SP {
     
     private const val KEY_EPG_CACHE_TIMESTAMP = "epg_cache_timestamp" // EPG 缓存时间戳（毫秒）
 
+    private const val KEY_ENABLE_TIME_SHIFT = "enable_time_shift" // 是否启用时移功能
+
     const val DEFAULT_CHANNEL_REVERSAL = false
     const val DEFAULT_CHANNEL_NUM = false
     const val DEFAULT_TIME = true
@@ -78,6 +80,7 @@ object SP {
     const val DEFAULT_DISPLAY_SECONDS = true
     const val DEFAULT_LOG_TIMES = 10
     const val DEFAULT_SOFT_DECODE = false
+    const val DEFAULT_ENABLE_TIME_SHIFT = false // 默认关闭时移（大多数 IPTV 服务器不支持）
 
     // 0 favorite; 1 all
     const val DEFAULT_POSITION_GROUP = 1
@@ -180,6 +183,12 @@ object SP {
     var softDecode: Boolean
         get() = sp.getBoolean(KEY_SOFT_DECODE, DEFAULT_SOFT_DECODE)
         set(value) = sp.edit().putBoolean(KEY_SOFT_DECODE, value).apply()
+
+    // 是否启用时移功能（直播时按左键回退）
+    // 大多数 IPTV 服务器不支持时移，默认关闭
+    var enableTimeShift: Boolean
+        get() = sp.getBoolean(KEY_ENABLE_TIME_SHIFT, DEFAULT_ENABLE_TIME_SHIFT)
+        set(value) = sp.edit().putBoolean(KEY_ENABLE_TIME_SHIFT, value).apply()
 
     fun getLike(id: Int): Boolean {
         val stringSet = sp.getStringSet(KEY_LIKE, emptySet())

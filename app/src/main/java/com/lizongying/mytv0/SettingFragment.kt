@@ -106,6 +106,13 @@ class SettingFragment : Fragment() {
         val switchShowAllChannels = _binding?.switchShowAllChannels
         switchShowAllChannels?.isChecked = SP.showAllChannels
 
+        val switchEnableTimeShift = _binding?.switchEnableTimeShift
+        switchEnableTimeShift?.isChecked = SP.enableTimeShift
+        switchEnableTimeShift?.setOnCheckedChangeListener { _, isChecked ->
+            SP.enableTimeShift = isChecked
+            mainActivity.settingActive()
+        }
+
         val switchCompactMenu = _binding?.switchCompactMenu
         switchCompactMenu?.isChecked = SP.compactMenu
         switchCompactMenu?.setOnCheckedChangeListener { _, isChecked ->
@@ -255,6 +262,7 @@ class SettingFragment : Fragment() {
             binding.switchCompactMenu,
             binding.switchDisplaySeconds,
             binding.switchSoftDecode,
+            binding.switchEnableTimeShift,
         )) {
             i.textSize = textSizeSwitch
             i.layoutParams = layoutParamsSwitch

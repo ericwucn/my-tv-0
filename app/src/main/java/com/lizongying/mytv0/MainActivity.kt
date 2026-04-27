@@ -440,6 +440,9 @@ class MainActivity : AppCompatActivity() {
         val tvModel = viewModel.groupModel.getCurrent() ?: return
         if (!tvModel.isInCatchupMode) return
         
+        // 恢复直播模式的循环播放
+        playerFragment.resumeLiveMode()
+        
         tvModel.catchupOriginalUris?.let { originalUris ->
             tvModel.tv = tvModel.tv.copy(uris = originalUris)
             tvModel.isInCatchupMode = false
@@ -999,18 +1002,27 @@ class MainActivity : AppCompatActivity() {
 
     override fun attachBaseContext(base: Context) {
         try {
-            val locale = Locale.TRADITIONAL_CHINESE
-            val config = Configuration()
-            config.setLocale(locale)
-            super.attachBaseContext(
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N_MR1) {
-                    base.createConfigurationContext(config)
-                } else {
-                    val resources = base.resources
-                    resources.updateConfiguration(config, resources.displayMetrics)
-                    base
-                }
-            )
+            // Only apply Traditional Chinese if the device is already set to a Chinese locale
+            val systemLocale = base.resources.configuration.locales.get(0)
+            val languageTag = systemLocale.language
+            val shouldApplyChinese = languageTag == "zh"
+
+            if (shouldApplyChinese) {
+                val locale = Locale.TRADITIONAL_CHINESE
+                val config = Configuration()
+                config.setLocale(locale)
+                super.attachBaseContext(
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N_MR1) {
+                        base.createConfigurationContext(config)
+                    } else {
+                        val resources = base.resources
+                        resources.updateConfiguration(config, resources.displayMetrics)
+                        base
+                    }
+                )
+            } else {
+                super.attachBaseContext(base)
+            }
         } catch (_: Exception) {
             super.attachBaseContext(base)
         }

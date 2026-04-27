@@ -149,7 +149,6 @@ class PlaybackControlFragment : Fragment() {
         })
 
         updateHint()
-        (activity as MainActivity).ready(TAG)
     }
 
     /**
@@ -256,8 +255,10 @@ class PlaybackControlFragment : Fragment() {
      * 按下时：注册长按检测，500ms 后开始连续快退/快进
      */
     private fun scheduleLongPress(isRewind: Boolean) {
-        // 取消旧的连续任务，防止旧 runnable 继续执行导致步长错乱
+        // 取消所有可能的旧任务，防止旧 runnable 继续执行导致步长错乱
         handler.removeCallbacks(continuousRunnable)
+        rewindLongPressRunnable?.let { handler.removeCallbacks(it) }
+        forwardLongPressRunnable?.let { handler.removeCallbacks(it) }
         isRewindContinuous = false
         isForwardContinuous = false
         
@@ -428,8 +429,8 @@ class PlaybackControlFragment : Fragment() {
                 binding.seekbar.progress = progress
                 binding.timeCurrent.text = formatTime(position)
                 binding.timeDuration.text = formatTime(playerDuration)
-            } else {
-                // 时移/直播模式
+            } else if (SP.enableTimeShift) {
+                // 时移模式（已启用）
                 // 进度：rewindSeconds=0时在右侧(LIVE)，rewindSeconds=max时在左侧(90分钟前)
                 binding.seekbar.max = 1000
                 val progress = (((maxRewindSeconds - rewindSeconds).toDouble() / maxRewindSeconds) * 1000).toInt().coerceIn(0, 1000)
@@ -438,6 +439,14 @@ class PlaybackControlFragment : Fragment() {
                 binding.timeCurrent.text = "-${formatTime(maxRewindSeconds * 1000L)}"
                 binding.timeDuration.text = "LIVE"
                 binding.programTitle.text = if (rewindSeconds > 0) "时移 -${formatTime(rewindSeconds * 1000L)}" else "直播"
+            } else {
+                // 直播模式（时移已禁用）
+                // 不显示进度条，只显示直播状态
+                binding.seekbar.max = 1000
+                binding.seekbar.progress = 1000 // 固定在 LIVE 位置
+                binding.timeCurrent.text = ""
+                binding.timeDuration.text = "LIVE"
+                binding.programTitle.text = "直播"
             }
         }
     }
@@ -455,18 +464,21 @@ class PlaybackControlFragment : Fragment() {
 
     private fun rewind(ms: Long) {
         val player = playerFragment?.getPlayer() ?: return
-        
+
         if (isCatchupMode) {
-            // 回放模式：快退，限制不能超过节目开始时间
+            // Catchup mode: seek backward within the current media duration
             val currentPosition = player.currentPosition
-            var newPosition = currentPosition - ms
-            newPosition = Math.max(newPosition, catchupStartTime)
+            val newPosition = (currentPosition - ms).coerceAtLeast(0L)
             player.seekTo(newPosition)
         } else {
-            // 时移模式：使用 startTimeShift
+            // Time-shift mode: check if enabled
+            if (!SP.enableTimeShift) {
+                Log.i(TAG, "时移功能已禁用")
+                return
+            }
             rewindSeconds += ms / 1000
-            rewindSeconds = Math.min(rewindSeconds, maxRewindSeconds)
-            
+            rewindSeconds = rewindSeconds.coerceAtMost(maxRewindSeconds)
+
             val now = System.currentTimeMillis() / 1000
             val seekTime = now - rewindSeconds
             Log.i(TAG, "时移后退: rewindSeconds=$rewindSeconds, seekTime=$seekTime")
@@ -477,20 +489,32 @@ class PlaybackControlFragment : Fragment() {
 
     private fun forward(ms: Long) {
         val player = playerFragment?.getPlayer() ?: return
-        
+
         if (isCatchupMode) {
-            // 回放模式：快进，限制不能超过节目结束时间
+            // Catchup mode: seek forward within the current media duration
             val currentPosition = player.currentPosition
-            var newPosition = currentPosition + ms
-            newPosition = Math.min(newPosition, catchupEndTime)
+            val duration = player.duration
+            val cap = if (duration > 0) duration else Long.MAX_VALUE
+            val newPosition = (currentPosition + ms).coerceAtMost(cap)
             player.seekTo(newPosition)
         } else {
-            // 时移模式：向NOW靠近
+            // Time-shift mode: check if enabled
+            if (!SP.enableTimeShift) {
+                Log.i(TAG, "时移功能已禁用")
+                return
+            }
             rewindSeconds -= ms / 1000
             if (rewindSeconds <= 0) {
                 rewindSeconds = 0
                 Log.i(TAG, "时移回到直播")
-                (activity as? MainActivity)?.exitCatchupMode()
+                tvModel?.let { model ->
+                    model.catchupOriginalUris?.let { originalUris ->
+                        model.tv = model.tv.copy(uris = originalUris)
+                        playerFragment?.play(model)
+                        playerFragment?.resumeLiveMode()
+                        Log.i(TAG, "时移回到直播：恢复原始直播流")
+                    }
+                }
             } else {
                 val now = System.currentTimeMillis() / 1000
                 val seekTime = now - rewindSeconds
@@ -504,8 +528,10 @@ class PlaybackControlFragment : Fragment() {
     private fun updateHint() {
         val hint = if (isCatchupMode) {
             "回放模式 | ←30秒 →1分钟 | 长按加速"
-        } else {
+        } else if (SP.enableTimeShift) {
             "直播模式 | ←30秒 →1分钟 | 长按加速"
+        } else {
+            "直播模式 | 时移已禁用"
         }
         binding.hint.text = hint
     }
@@ -530,7 +556,12 @@ class PlaybackControlFragment : Fragment() {
                 player.seekTo(position)
             }
         } else {
-            // 时移模式：拖动进度条
+            // 时移模式：检查是否启用时移功能
+            if (!SP.enableTimeShift) {
+                Log.i(TAG, "时移功能已禁用")
+                return
+            }
+            // 拖动进度条
             // progress=1000在最右侧(LIVE)，progress=0在最左侧(90分钟前)
             rewindSeconds = ((1000 - progress).toDouble() / 1000.0 * maxRewindSeconds).toLong()
             
@@ -539,7 +570,15 @@ class PlaybackControlFragment : Fragment() {
                 val seekTime = now - rewindSeconds
                 (activity as? MainActivity)?.startTimeShift(seekTime)
             } else {
-                (activity as? MainActivity)?.exitCatchupMode()
+                // 修复：时移模式回到直播，需要恢复原始直播 URL 并重新播放
+                tvModel?.let { model ->
+                    model.catchupOriginalUris?.let { originalUris ->
+                        model.tv = model.tv.copy(uris = originalUris)
+                        playerFragment?.play(model)
+                        playerFragment?.resumeLiveMode()
+                        Log.i(TAG, "进度条拖到 LIVE：恢复原始直播流")
+                    }
+                }
             }
         }
     }

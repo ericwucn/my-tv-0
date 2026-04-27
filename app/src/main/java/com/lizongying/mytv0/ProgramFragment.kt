@@ -2,6 +2,7 @@ package com.lizongying.mytv0
 
 import android.os.Bundle
 import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
@@ -20,7 +21,7 @@ class ProgramFragment : Fragment(), ProgramAdapter.ItemListener {
     private var _binding: ProgramBinding? = null
     private val binding get() = _binding!!
 
-    private val handler = Handler()
+    private val handler = Handler(Looper.getMainLooper())
     private val delay: Long = 5000
 
     private lateinit var programAdapter: ProgramAdapter

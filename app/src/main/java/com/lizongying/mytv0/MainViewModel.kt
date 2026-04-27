@@ -796,8 +796,8 @@ class MainViewModel : ViewModel() {
                     }
                 }
                 for ((title, uris) in tvMap) {
-                    val channelGroup = uris.first();
-                    uris.drop(1);
+                    val channelGroup = uris.first()
+                    val channelUris = uris.drop(1)
                     val tv = TV(
                         -1,
                         "",
@@ -805,7 +805,7 @@ class MainViewModel : ViewModel() {
                         "",
                         "",
                         "",
-                        uris,
+                        channelUris,
                         0,
                         emptyMap(),
                         channelGroup,
@@ -871,7 +871,7 @@ class MainViewModel : ViewModel() {
     companion object {
         private const val TAG = "MainViewModel"
         const val CACHE_FILE_NAME = "channels.txt"
-        const val CACHE_EPG = "epg.xml"
+        const val CACHE_EPG = "epg.json"
         val DEFAULT_CHANNELS_FILE = R.raw.channels
         
         // 默认视频源 URL（用于设置菜单中的视频源列表）

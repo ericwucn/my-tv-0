@@ -125,14 +125,18 @@ class UpdateManager(
     }
     
     private fun parseVersionCode(versionName: String): Long {
-        // v1.5.1.8 -> 17105158
+        // 与 build.gradle.kts getVersionCode() 保持一致
+        // v1.5.1.9 -> v*16777216 + m*65536 + p*256 + b = 17105161
         try {
-            val parts = versionName.removePrefix("v").split(".")
-            if (parts.size == 4) {
-                return ((parts[0].toLong() * 10000000) +
-                        (parts[1].toLong() * 100000) +
-                        (parts[2].toLong() * 1000) +
-                        parts[3].toLong())
+            val arr = versionName.removePrefix("v")
+                .replace(".", " ")
+                .replace("-", " ")
+                .split(" ")
+            if (arr.size >= 4) {
+                return (arr[0].toLong() * 16777216) +
+                       (arr[1].toLong() * 65536) +
+                       (arr[2].toLong() * 256) +
+                       arr[3].toLong()
             }
         } catch (e: Exception) {
             Log.e(TAG, "parseVersionCode error: ${e.message}")

@@ -53,19 +53,20 @@
     <string name="no_video_source">No Video Source</string>
     <string name="soft_decode">Soft Decode</string>
     <string name="epg_is_empty">EPG is empty</string>
-    <string name="epg_updating">EPG 更新中...</string>
+    <string name="epg_updating">Updating EPG…</string>
     <string name="catchup">Replay</string>
     <string name="catchup_playing">Playing replay</string>
     
-    <!-- 播放控制 -->
-    <string name="rewind">快退</string>
-    <string name="forward">快进</string>
-    <string name="play">播放</string>
-    <string name="pause">暂停</string>
-    <string name="exit_catchup">退出回放</string>
-    <string name="confirm_exit_catchup">确定退出回放吗？</string>
-    <string name="confirm">确定</string>
-    <string name="cancel">取消</string>
-    <string name="live_mode">直播模式</string>
-    <string name="catchup_mode">回放模式</string>
+    <!-- Playback controls -->
+    <string name="rewind">Rewind</string>
+    <string name="forward">Forward</string>
+    <string name="play">Play</string>
+    <string name="pause">Pause</string>
+    <string name="exit_catchup">Exit Replay</string>
+    <string name="confirm_exit_catchup">Exit replay and return to live?</string>
+    <string name="confirm">OK</string>
+    <string name="cancel">Cancel</string>
+    <string name="live_mode">Live</string>
+    <string name="catchup_mode">Replay</string>
+    <string name="title_enable_time_shift">Enable Time Shift (requires server support)</string>
 </resources>
