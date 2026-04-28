@@ -471,12 +471,11 @@ class PlaybackControlFragment : Fragment() {
             val newPosition = (currentPosition - ms).coerceAtLeast(0L)
             player.seekTo(newPosition)
         } else {
-            // 时移模式：检查是否启用时移功能
+            // Time-shift mode: check if enabled
             if (!SP.enableTimeShift) {
                 Log.i(TAG, "时移功能已禁用")
                 return
             }
-            // 使用 startTimeShift
             rewindSeconds += ms / 1000
             rewindSeconds = rewindSeconds.coerceAtMost(maxRewindSeconds)
 
@@ -499,18 +498,15 @@ class PlaybackControlFragment : Fragment() {
             val newPosition = (currentPosition + ms).coerceAtMost(cap)
             player.seekTo(newPosition)
         } else {
-            // 时移模式：检查是否启用时移功能
+            // Time-shift mode: check if enabled
             if (!SP.enableTimeShift) {
                 Log.i(TAG, "时移功能已禁用")
                 return
             }
-            // 向NOW靠近
             rewindSeconds -= ms / 1000
             if (rewindSeconds <= 0) {
                 rewindSeconds = 0
                 Log.i(TAG, "时移回到直播")
-                // 修复：时移模式回到直播，需要恢复原始直播 URL 并重新播放
-                // exitCatchupMode() 只用于回放模式，时移模式需要直接恢复直播
                 tvModel?.let { model ->
                     model.catchupOriginalUris?.let { originalUris ->
                         model.tv = model.tv.copy(uris = originalUris)
