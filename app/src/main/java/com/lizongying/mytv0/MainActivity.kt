@@ -413,6 +413,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
+     * 由 ProgramFragment.onCatchupClick 调用
+     * 在播放回放之前，先把节目时间范围同步给 PlaybackControlFragment
+     * 这样 showProgram() 调用 getCatchupTimeRange() 时能拿到正确的值
+     */
+    fun notifyCatchupTimeRange(beginTimeSec: Int, endTimeSec: Int) {
+        playbackControlFragment.recordCatchupTimeRange(beginTimeSec, endTimeSec)
+        Log.i(TAG, "notifyCatchupTimeRange: begin=$beginTimeSec, end=$endTimeSec")
+    }
+
+    /**
      * 播放回放 URL
      * 从 ProgramFragment 点击节目单中的回放节目时调用
      */
@@ -452,39 +462,133 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // -------------------------------------------------------------------------
+    // Time-Shift: Rolling playback (start=past, end=dynamic now)
+    // -------------------------------------------------------------------------
+
+    /** The Unix-second timestamp where the current time-shift window begins */
+    private var timeShiftStartSec: Long = 0L
+
+    /** Handler + Runnable that periodically refreshes the time-shift URL so
+     *  the server's end-time keeps advancing with real time */
+    private val timeShiftHandler = Handler(Looper.getMainLooper())
+    private val timeShiftRefreshIntervalMs = 30_000L   // refresh every 30 s
+
+    private val timeShiftRefreshRunnable = object : Runnable {
+        override fun run() {
+            if (timeShiftStartSec == 0L) return
+            val tvModel = viewModel.groupModel.getCurrent() ?: return
+            if (!tvModel.catchupOriginalUris.isNullOrEmpty()) {
+                // Double-check we still need rolling refresh (catchupSource might have changed on channel switch)
+                val catchupSource = tvModel.tv.catchupSource ?: return
+                if (!catchupSourceHasEndPlaceholder(catchupSource)) {
+                    Log.i(TAG, "时移刷新：catchupSource 无 end 占位符，停止刷新")
+                    return
+                }
+                refreshTimeShiftUrl(tvModel)
+            }
+            timeShiftHandler.postDelayed(this, timeShiftRefreshIntervalMs)
+        }
+    }
+
     /**
-     * 开始时移播放（直播快退）
-     * @param seekTime 时移开始时间（Unix 时间戳，秒）
+     * Start a rolling time-shift window.
+     * @param seekTime  Unix timestamp (seconds) for the window's start — e.g. now−60
      */
     fun startTimeShift(seekTime: Long) {
         val tvModel = viewModel.groupModel.getCurrent() ?: return
         val catchupSource = tvModel.tv.catchupSource
-        
+
         if (catchupSource.isNullOrEmpty()) {
-            Log.w(TAG, "startTimeShift: 不支持时移")
+            Log.w(TAG, "startTimeShift: 该频道不支持时移（无 catchupSource）")
             return
         }
-        
+
         Log.i(TAG, "startTimeShift: seekTime=$seekTime, catchupSource=$catchupSource")
-        
-        // 注意：不设置 isInCatchupMode，这是时移模式，不是回放模式
-        // 时移状态由 PlaybackControlFragment 的 rewindSeconds 控制
-        
-        // 保存原始直播 URL（如果还没保存）
+
         if (tvModel.catchupOriginalUris == null) {
             tvModel.catchupOriginalUris = tvModel.tv.uris
         }
-        
-        // 构建时移 URL
-        val timeShiftUrl = buildCatchupUrl(tvModel.tv.uris.firstOrNull() ?: "", catchupSource, seekTime)
-        Log.i(TAG, "时移URL: $timeShiftUrl")
-        
-        // 使用 playCatchup 直接播放时移 URL
-        playerFragment.playCatchup(tvModel, timeShiftUrl)
+
+        timeShiftStartSec = seekTime
+
+        // 检查 catchupSource 里是否含有 end 时间占位符
+        // 有 → 服务器依赖 end 参数限制窗口，必须 rolling refresh
+        // 无 → 服务器靠 HLS manifest 自然延伸，不需要定时刷新
+        val needsRollingRefresh = catchupSourceHasEndPlaceholder(catchupSource)
+        Log.i(TAG, "startTimeShift: needsRollingRefresh=$needsRollingRefresh")
+
+        refreshTimeShiftUrl(tvModel)
+
+        timeShiftHandler.removeCallbacks(timeShiftRefreshRunnable)
+        if (needsRollingRefresh) {
+            timeShiftHandler.postDelayed(timeShiftRefreshRunnable, timeShiftRefreshIntervalMs)
+        }
+    }
+
+    /**
+     * 检查 catchupSource 模板里是否含有 end 时间占位符
+     * 含有 → 服务器用 end 参数来限制内容窗口，需要 rolling refresh
+     * 不含 → 服务器靠 HLS manifest 自然延伸，不需要刷新
+     */
+    private fun catchupSourceHasEndPlaceholder(catchupSource: String): Boolean {
+        val endPatterns = listOf(
+            "{end}", "{utcend}", "{endms}", "\${end}",
+            "(e)", // (e)yyyyMMddHHmmss 格式
+            "${(e)" // ${(e)yyyyMMddHHmmss} 格式
+        )
+        return endPatterns.any { catchupSource.contains(it) }
+    }
+
+    /**
+     * Build a new time-shift URL (start = fixed, end = NOW) and hand it to
+     * the player.  Called on first play and every 30 s thereafter.
+     */
+    private fun refreshTimeShiftUrl(tvModel: com.lizongying.mytv0.models.TVModel) {
+        val catchupSource = tvModel.tv.catchupSource ?: return
+        val baseUrl = tvModel.catchupOriginalUris?.firstOrNull()
+            ?: tvModel.tv.uris.firstOrNull()
+            ?: return
+
+        val nowSec = System.currentTimeMillis() / 1000
+        val url = buildCatchupUrlWithEnd(baseUrl, catchupSource, timeShiftStartSec, nowSec)
+
+        Log.i(TAG, "时移URL刷新: start=$timeShiftStartSec, end=$nowSec  →  $url")
+
+        // Seek to where the player currently is so the refresh is seamless.
+        // ExoPlayer will re-buffer from that position in the new URL.
+        val currentPosSec = playerFragment.getPlayer()?.currentPosition?.div(1000) ?: 0L
+        val seekInNewUrl = if (currentPosSec > 0) (currentPosSec) else 0L
+
+        playerFragment.playCatchupWithSeek(tvModel, url, seekInNewUrl * 1000)
+    }
+
+    /** Stop the rolling refresh (called on channel change / exit time-shift) */
+    private fun stopTimeShiftRefresh() {
+        timeShiftHandler.removeCallbacks(timeShiftRefreshRunnable)
+        timeShiftStartSec = 0L
+        Log.i(TAG, "时移刷新已停止")
+    }
+
+    /**
+     * 退出时移模式，返回直播
+     */
+    private fun exitTimeShiftMode() {
+        stopTimeShiftRefresh()
+        playbackControlFragment.resetTimeShift()
+        val tvModel = viewModel.groupModel.getCurrent() ?: return
+
+        tvModel.catchupOriginalUris?.let { originalUris ->
+            tvModel.tv = tvModel.tv.copy(uris = originalUris)
+            tvModel.catchupOriginalUris = null
+            tvModel.setReady()
+            Log.i(TAG, "exitTimeShiftMode: 已恢复直播流")
+        }
     }
 
     fun prev() {
         exitCatchupMode()
+        stopTimeShiftRefresh()
         playbackControlFragment.resetTimeShift()
         val prevGroup = viewModel.groupModel.positionValue
         val tvModel =
@@ -504,6 +608,7 @@ class MainActivity : AppCompatActivity() {
 
     fun next() {
         exitCatchupMode()
+        stopTimeShiftRefresh()
         playbackControlFragment.resetTimeShift()
         val prevGroup = viewModel.groupModel.positionValue
         val tvModel =

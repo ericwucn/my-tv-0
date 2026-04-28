@@ -223,9 +223,36 @@ class PlayerFragment : Fragment() {
     }
     
     /**
-     * 恢复直播模式（重新启用循环播放）
+     * 播放回看 URL，并在 ready 后跳转到指定位置（用于时移刷新的无缝续播）
+     * @param seekToMs  seek 位置（毫秒），0 表示从头开始
      */
-    fun resumeLiveMode() {
+    @OptIn(UnstableApi::class)
+    fun playCatchupWithSeek(tvModel: TVModel, catchupUrl: String, seekToMs: Long) {
+        this.tvModel = tvModel
+        Log.i(TAG, "playCatchupWithSeek: url=$catchupUrl, seekToMs=$seekToMs")
+
+        player?.run {
+            stop()
+            clearMediaItems()
+            repeatMode = Player.REPEAT_MODE_OFF
+
+            val mediaItem = if (seekToMs > 0) {
+                MediaItem.Builder()
+                    .setUri(catchupUrl)
+                    .setClippingConfiguration(
+                        MediaItem.ClippingConfiguration.Builder()
+                            .setStartPositionMs(seekToMs)
+                            .build()
+                    )
+                    .build()
+            } else {
+                MediaItem.fromUri(catchupUrl)
+            }
+            setMediaItem(mediaItem)
+            prepare()
+            playWhenReady = true
+        }
+    }
         player?.repeatMode = REPEAT_MODE_ALL
         Log.i(TAG, "恢复直播模式，启用循环播放")
     }

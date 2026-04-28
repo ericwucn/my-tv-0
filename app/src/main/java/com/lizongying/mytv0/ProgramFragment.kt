@@ -219,9 +219,12 @@ class ProgramFragment : Fragment(), ProgramAdapter.ItemListener {
 
         val tvModel = viewModel.groupModel.getCurrent() ?: return
         val baseUrl = tvModel.tv.uris.firstOrNull() ?: return
-        
-        // 记录回放节目信息
+
+        // 记录回放节目信息（供下次打开 EPG 时定位用）
         recordPlaybackInfo(epg.beginTime, epg.endTime)
+
+        // 同步通知 PlaybackControlFragment 记录时间范围（它的 getCatchupTimeRange() 要用这个）
+        (activity as? MainActivity)?.notifyCatchupTimeRange(epg.beginTime, epg.endTime)
 
         // 构建回看 URL
         val catchupUrl = buildCatchupUrl(baseUrl, catchupSource, epg.beginTime, epg.endTime)

@@ -373,30 +373,82 @@ class PlaybackControlFragment : Fragment() {
     fun setTVModel(model: TVModel) {
         this.tvModel = model
         isCatchupMode = model.isInCatchupMode
-        
+
         if (isCatchupMode) {
-            // 回放模式：记录节目时间范围
-            model.epgValue.firstOrNull()?.let { epg ->
-                catchupStartTime = epg.beginTime.toLong() * 1000
-                catchupEndTime = epg.endTime.toLong() * 1000
+            // 回放模式：catchupStartTime/EndTime 应来自用户点击的节目（由 recordCatchupTimeRange 设置）
+            // 如果外部已通过 recordCatchupTimeRange() 设置了时间范围，则保留；
+            // 否则尝试从 EPG 中找到与当前播放 URL 匹配的节目
+            if (catchupStartTime == 0L) {
+                // 尝试从 epgValue 中找到正在回放的节目（根据 URL 里的时间参数）
+                val playbackUrl = model.tv.uris.firstOrNull() ?: ""
+                val urlTimestamp = parseTimestampFromUrl(playbackUrl)
+                if (urlTimestamp > 0) {
+                    val matchedEpg = model.epgValue.firstOrNull { epg ->
+                        urlTimestamp >= epg.beginTime && urlTimestamp < epg.endTime
+                    }
+                    if (matchedEpg != null) {
+                        catchupStartTime = matchedEpg.beginTime.toLong() * 1000
+                        catchupEndTime = matchedEpg.endTime.toLong() * 1000
+                        Log.i(TAG, "setTVModel: 从URL时间戳定位节目 beginTime=${matchedEpg.beginTime}, endTime=${matchedEpg.endTime}")
+                    } else {
+                        // URL 有时间戳但 EPG 无法匹配，用 URL 时间戳估算
+                        catchupStartTime = urlTimestamp * 1000
+                        catchupEndTime = 0L
+                        Log.i(TAG, "setTVModel: EPG无匹配，用URL时间戳 catchupStartTime=$catchupStartTime")
+                    }
+                }
+                // 若 URL 无时间戳，catchupStartTime 保持 0，EPG 定位会 fallback 到 firstOrNull
             }
         } else {
-            // 时移模式：右键打开播控时，如果有 rewindSeconds > 0，重新计算 seekTime
-            if (rewindSeconds > 0) {
-                // 时移模式不需要在这里处理，由 rewind/forward 方法处理
-            }
+            // 切换到直播/时移模式：清空回放时间范围
+            catchupStartTime = 0L
+            catchupEndTime = 0L
         }
-        
-        Log.i(TAG, "setTVModel: isCatchupMode=$isCatchupMode, rewindSeconds=$rewindSeconds")
+
+        Log.i(TAG, "setTVModel: isCatchupMode=$isCatchupMode, catchupStartTime=$catchupStartTime, rewindSeconds=$rewindSeconds")
         updateUI()
+    }
+
+    /**
+     * 由 ProgramFragment.onCatchupClick 调用，记录用户选择的回放节目时间范围
+     * 这是最准确的来源——用户点了哪个节目就记哪个节目
+     */
+    fun recordCatchupTimeRange(beginTimeSec: Int, endTimeSec: Int) {
+        catchupStartTime = beginTimeSec.toLong() * 1000
+        catchupEndTime = endTimeSec.toLong() * 1000
+        Log.i(TAG, "recordCatchupTimeRange: begin=$beginTimeSec, end=$endTimeSec")
+    }
+
+    /**
+     * 从回放 URL 中解析开始时间戳（秒）
+     * 支持常见 IPTV 回看 URL 格式
+     */
+    private fun parseTimestampFromUrl(url: String): Long {
+        if (url.isEmpty()) return 0L
+        val patterns = listOf(
+            Regex("""[?&]start[=_](\d{10})"""),
+            Regex("""[?&]t[=_](\d{10})"""),
+            Regex("""[?&]begin[=_](\d{10})"""),
+            Regex("""[?&]utc[=_](\d{10})"""),
+            Regex("""[?&]time[=_](\d{10})"""),
+            Regex("""/(\d{10})(?:[/?&]|$)""")
+        )
+        for (p in patterns) {
+            val v = p.find(url)?.groupValues?.get(1)?.toLongOrNull() ?: continue
+            // 合理性校验：时间戳应在 2010~2040 之间
+            if (v in 1262304000L..2208988800L) return v
+        }
+        return 0L
     }
     
     /**
-     * 换台时调用，重置时移状态
+     * 换台时调用，重置时移状态和回放时间范围
      */
     fun resetTimeShift() {
         rewindSeconds = 0
-        Log.i(TAG, "resetTimeShift: rewindSeconds=$rewindSeconds")
+        catchupStartTime = 0L
+        catchupEndTime = 0L
+        Log.i(TAG, "resetTimeShift: 已重置时移和回放状态")
     }
 
     private fun updateUI() {
