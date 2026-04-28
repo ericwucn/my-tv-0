@@ -535,7 +535,7 @@ class MainActivity : AppCompatActivity() {
         val endPatterns = listOf(
             "{end}", "{utcend}", "{endms}", "\${end}",
             "(e)", // (e)yyyyMMddHHmmss 格式
-            "${(e)" // ${(e)yyyyMMddHHmmss} 格式
+            "${(e)yyyyMMddHHmmss}" // ${(e)yyyyMMddHHmmss} 格式
         )
         return endPatterns.any { catchupSource.contains(it) }
     }
