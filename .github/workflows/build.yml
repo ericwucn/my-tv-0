@@ -23,7 +23,23 @@ jobs:
           cache: 'gradle'
 
       - name: Run build with Gradle wrapper
-        run: ./gradlew clean && ./gradlew assembleRelease
+        run: |
+          set -e
+          ./gradlew clean 2>&1 | tee gradle_clean.log
+          ./gradlew assembleRelease 2>&1 | tee gradle_build.log
+          echo "=== GRADLE BUILD RESULT ==="
+          echo "Build exit code: $?"
+          tail -100 gradle_build.log
+
+      - name: Debug on failure
+        if: failure()
+        run: |
+          echo "=== last 100 lines of gradle_build.log ==="
+          tail -100 gradle_build.log || true
+          echo "=== gradle build directory ==="
+          ls -la app/build/outputs/apk/release/ 2>&1 || echo "No release dir"
+          echo "=== project files ==="
+          ls -la app/src/main/java/com/lizongying/mytv0/ | head -20
 
       - name: Sign app APK
         id: sign_app
